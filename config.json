@@ -1,0 +1,33 @@
+{
+  "active_prefix": "BL31",
+  "pv_prefixes": {
+    "BL31": {
+      "image_pv": "BL31:image1:ArrayData",
+      "width_pv": "BL31:image1:ArraySize0_RBV",
+      "height_pv": "BL31:image1:ArraySize1_RBV",
+      "exposure_pv": "BL31:cam1:AcquireTime",
+      "exposure_rbv_pv": "BL31:cam1:AcquireTime_RBV",
+      "gain_pv": "BL31:cam1:Gain",
+      "gain_rbv_pv": "BL31:cam1:Gain_RBV"
+    },
+    "BL72": {
+      "image_pv": "BL72:image1:ArrayData",
+      "width_pv": "BL72:image1:ArraySize0_RBV",
+      "height_pv": "BL72:image1:ArraySize1_RBV",
+      "exposure_pv": "BL72:cam1:AcquireTime",
+      "exposure_rbv_pv": "BL72:cam1:AcquireTime_RBV",
+      "gain_pv": "BL72:cam1:Gain",
+      "gain_rbv_pv": "BL72:cam1:Gain_RBV"
+    }
+  },
+  "epics": {
+    "host": "127.0.0.1",
+    "port": 15064
+  },
+  "display": {
+    "enable_fitting": true,
+    "auto_levels": true,
+    "levels_interval": 30,
+    "colormap_name": "hot"
+  }
+}
