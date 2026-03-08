@@ -27,3 +27,6 @@ Thumbs.db
 
 # Project-specific
 legacy/
+
+# Docs
+CODEBASE_SUMMARY.md

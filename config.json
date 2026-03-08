@@ -8,7 +8,8 @@
       "exposure_pv": "BL31:cam1:AcquireTime",
       "exposure_rbv_pv": "BL31:cam1:AcquireTime_RBV",
       "gain_pv": "BL31:cam1:Gain",
-      "gain_rbv_pv": "BL31:cam1:Gain_RBV"
+      "gain_rbv_pv": "BL31:cam1:Gain_RBV",
+      "fallback_shape": [300, 300]
     },
     "BL72": {
       "image_pv": "BL72:image1:ArrayData",
