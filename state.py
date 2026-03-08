@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -61,6 +61,12 @@ class AppState:
         self.exposure_rbv_pv: str = pv_names.get("exposure_rbv_pv", "")
         self.gain_pv: str = pv_names.get("gain_pv", "")
         self.gain_rbv_pv: str = pv_names.get("gain_rbv_pv", "")
+
+        # fallback_shape = (height, width) used when EPICS metadata PVs fail
+        _fs = pv_names.get("fallback_shape")
+        self.fallback_shape: Optional[Tuple[int, int]] = (
+            (int(_fs[0]), int(_fs[1])) if _fs is not None else None
+        )
 
         # ---- Mutable runtime state (lock-protected) -----------------------
         self._frame_state: Optional[FrameState] = None

@@ -64,6 +64,7 @@ class BeamController(QObject):
             image_pv=state.image_pv,
             width_pv=state.width_pv,
             height_pv=state.height_pv,
+            fallback_shape=state.fallback_shape,
         )
         self._analysis_worker = AnalysisWorker()
 
@@ -174,6 +175,10 @@ class BeamController(QObject):
         self.state.exposure_rbv_pv = pv_names.get("exposure_rbv_pv", "")
         self.state.gain_pv = pv_names.get("gain_pv", "")
         self.state.gain_rbv_pv = pv_names.get("gain_rbv_pv", "")
+        _fs = pv_names.get("fallback_shape")
+        self.state.fallback_shape = (
+            (int(_fs[0]), int(_fs[1])) if _fs is not None else None
+        )
 
         self._epics_worker = EpicsWorker(
             host=self.state.host,
@@ -181,6 +186,7 @@ class BeamController(QObject):
             image_pv=self.state.image_pv,
             width_pv=self.state.width_pv,
             height_pv=self.state.height_pv,
+            fallback_shape=self.state.fallback_shape,
         )
         self._connect_epics_signals()
         self._epics_worker.start()

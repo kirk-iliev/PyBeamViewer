@@ -222,6 +222,7 @@ class EpicsWorker(QThread):
         image_pv: str,
         width_pv: str,
         height_pv: str,
+        fallback_shape: Optional[Tuple[int, int]] = None,
         debug: bool = False,
     ) -> None:
         super().__init__()
@@ -230,6 +231,7 @@ class EpicsWorker(QThread):
         self.image_pv = image_pv
         self.width_pv = width_pv
         self.height_pv = height_pv
+        self.fallback_shape = fallback_shape  # (height, width) used when metadata PVs fail
         self.debug = debug
 
         self._stop_event = threading.Event()
@@ -287,7 +289,11 @@ class EpicsWorker(QThread):
                     for b in circuit.send(h_req):
                         sock.sendall(bytes(b))
                 else:
-                    print("Metadata unavailable — falling back to square guessing.")
+                    if self.fallback_shape is not None:
+                        h, w = self.fallback_shape
+                        print(f"Metadata unavailable — using fallback shape {h}×{w}.")
+                    else:
+                        print("Metadata unavailable — falling back to square guessing.")
 
                 # 3. Event loop
                 while not self._stop_event.is_set():
@@ -360,8 +366,20 @@ class EpicsWorker(QThread):
                 return raw[:expected].reshape((self._height, self._width))
             return None
         else:
+            if self.fallback_shape is not None:
+                h, w = self.fallback_shape
+                expected = h * w
+                if raw.size >= expected:
+                    return raw[:expected].reshape((h, w))
+                print(
+                    f"[EpicsWorker] Frame size {raw.size} < fallback "
+                    f"{h}×{w} ({expected}); dropping frame."
+                )
+                return None
+            # Last resort: guess a square frame
             n = raw.size
             side = int(n ** 0.5)
             if side * side == n:
                 return raw[:n].reshape((side, side))
+            print(f"[EpicsWorker] Cannot reshape {n} pixels — not square and no fallback configured.")
             return None
