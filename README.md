@@ -21,7 +21,7 @@ A PyQt6-based GUI application for real-time beam visualization and analysis usin
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/PyBeamViewer.git
+git clone https://github.com/kirk-iliev/PyBeamViewer.git
 cd PyBeamViewer
 ```
 
