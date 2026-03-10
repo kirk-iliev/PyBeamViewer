@@ -1,27 +1,30 @@
 """
 epics_layer.py — EPICS / Channel Access communication layer.
 
-Provides low-level caproto TCP helpers and a ``QThread``-based worker that
-subscribes to image + dimension PVs and emits fully-reshaped frames as
-``numpy`` arrays.  All network I/O lives on the worker thread; cross-thread
-delivery happens via Qt signals (automatically queued).
+Hybrid implementation:
+1. Native Mode (Control Room): Uses the robust caproto.threading.client.Context
+   with standard UDP discovery.
+2. Tunnel Mode (SSH): Uses low-level sockets to bypass the CA Search phase,
+   forcing all traffic to stay inside the TCP tunnel.
 """
 
 from __future__ import annotations
 
-import socket
+import os
 import select
+import socket
 import threading
 import time
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import caproto as ca
 import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
+from caproto.threading.client import Context
 
 
 # ---------------------------------------------------------------------------
-# Low-level caproto helpers
+# Low-level socket helpers (Strictly for SSH Tunnel mode)
 # ---------------------------------------------------------------------------
 
 def drain(
@@ -30,13 +33,6 @@ def drain(
     timeout: float = 10.0,
     idle_timeout: float = 0.05,
 ) -> List:
-    """Read from *sock* until quiet, returning processed CA commands.
-
-    *idle_timeout* controls how long to wait for the next chunk after
-    receiving at least one command.  Keeping it small (50 ms default)
-    avoids a noticeable latency tax on every request-response cycle
-    while still draining back-to-back packets reliably.
-    """
     commands: list = []
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -47,7 +43,6 @@ def drain(
             break
         data = sock.recv(65536)
         if not data:
-            # We got an empty read, break out of main loop and close socket
             raise ConnectionError("Socket closed by peer")
         cmds, _ = circuit.recv(data)
         for c in cmds:
@@ -56,19 +51,14 @@ def drain(
     return commands
 
 
-def connect_epics(
+def connect_epics_socket(
     host: str,
     port: int,
     timeout: float = 10.0,
 ) -> Tuple[socket.socket, ca.VirtualCircuit]:
-    """TCP connect + CA handshake.  Returns ``(socket, circuit)``."""
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.setblocking(False)
-    circuit = ca.VirtualCircuit(
-        our_role=ca.CLIENT,
-        address=(host, port),
-        priority=0,
-    )
+    circuit = ca.VirtualCircuit(our_role=ca.CLIENT, address=(host, port), priority=0)
     for msg in [
         ca.VersionRequest(version=13, priority=0),
         ca.HostNameRequest("localhost"),
@@ -85,13 +75,12 @@ def connect_epics(
     return sock, circuit
 
 
-def open_channel(
+def open_channel_socket(
     sock: socket.socket,
     circuit: ca.VirtualCircuit,
     pv_name: str,
     timeout: float = 10.0,
 ) -> ca.ClientChannel:
-    """Open a channel, raising on failure (use for mandatory PVs)."""
     cid = circuit.new_channel_id()
     chan = ca.ClientChannel(pv_name, circuit, cid=cid)
     for b in circuit.send(chan.create()):
@@ -104,13 +93,12 @@ def open_channel(
     return chan
 
 
-def open_channel_safe(
+def open_channel_safe_socket(
     sock: socket.socket,
     circuit: ca.VirtualCircuit,
     pv_name: str,
     timeout: float = 5.0,
 ) -> Optional[ca.ClientChannel]:
-    """Try to open a channel.  Returns ``None`` on failure (optional PVs)."""
     try:
         cid = circuit.new_channel_id()
         chan = ca.ClientChannel(pv_name, circuit, cid=cid)
@@ -119,78 +107,80 @@ def open_channel_safe(
         deadline = time.monotonic() + timeout
         while chan.states[ca.CLIENT] is not ca.CONNECTED:
             if chan.states[ca.CLIENT] is ca.FAILED:
-                print(f"  ✗ {pv_name!r} (PV does not exist or access denied)")
                 return None
             if time.monotonic() > deadline:
-                print(f"  ✗ {pv_name!r} timed out")
                 return None
             drain(sock, circuit, timeout=0.1)
-        print(f"  ✓ {pv_name!r}")
         return chan
-    except Exception as exc:
-        print(f"  ✗ {pv_name!r}: {exc}")
+    except Exception:
         return None
 
 
 # ---------------------------------------------------------------------------
-# One-shot get / put helpers (each creates a temporary TCP connection)
+# One-shot API
 # ---------------------------------------------------------------------------
 
-def epics_get(
-    host: str,
-    port: int,
-    pv_name: str,
-    timeout: float = 5.0,
-):
-    """One-shot channel-access read (*caget* equivalent).
+def epics_get(host: str, port: int, pv_name: str, timeout: float = 5.0):
+    if host:
+        # Tunnel Mode
+        sock, circuit = connect_epics_socket(host, port, timeout)
+        try:
+            chan = open_channel_socket(sock, circuit, pv_name, timeout)
+            req = chan.read()
+            for b in circuit.send(req):
+                sock.sendall(bytes(b))
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                for cmd in drain(sock, circuit, timeout=0.5):
+                    if isinstance(cmd, ca.ReadNotifyResponse):
+                        return cmd.data
+            raise TimeoutError(f"No read response for {pv_name!r}")
+        finally:
+            sock.close()
+    else:
+        # Native Mode
+        os.environ.pop("EPICS_CA_ADDR_LIST", None)
+        os.environ.pop("EPICS_CA_AUTO_ADDR_LIST", None)
+        ctx = Context()
+        try:
+            pv, = ctx.get_pvs(pv_name)
+            pv.wait_for_connection(timeout=timeout)
+            response = pv.read(timeout=timeout)
+            return response.data
+        finally:
+            ctx.disconnect()
 
-    Creates a temporary TCP connection, reads the PV, and returns the data
-    tuple.  Suitable for infrequent reads from any thread.
-    """
-    sock, circuit = connect_epics(host, port, timeout)
-    try:
-        chan = open_channel(sock, circuit, pv_name, timeout)
-        req = chan.read()
-        for b in circuit.send(req):
-            sock.sendall(bytes(b))
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            for cmd in drain(sock, circuit, timeout=0.5):
-                if isinstance(cmd, ca.ReadNotifyResponse):
-                    return cmd.data
-        raise TimeoutError(f"No read response for {pv_name!r}")
-    finally:
-        sock.close()
 
-
-def epics_put(
-    host: str,
-    port: int,
-    pv_name: str,
-    value,
-    timeout: float = 5.0,
-) -> None:
-    """One-shot channel-access write (*caput* equivalent).
-
-    Creates a temporary TCP connection, writes the value, and waits for
-    confirmation.  Suitable for infrequent writes from any thread.
-    """
-    sock, circuit = connect_epics(host, port, timeout)
-    try:
-        chan = open_channel(sock, circuit, pv_name, timeout)
-        if not isinstance(value, (list, tuple)):
-            value = (value,)
-        req = chan.write(data=value, notify=True)
-        for b in circuit.send(req):
-            sock.sendall(bytes(b))
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            for cmd in drain(sock, circuit, timeout=0.5):
-                if isinstance(cmd, ca.WriteNotifyResponse):
-                    return
-        raise TimeoutError(f"No write-notify response for {pv_name!r}")
-    finally:
-        sock.close()
+def epics_put(host: str, port: int, pv_name: str, value, timeout: float = 5.0) -> None:
+    if host:
+        # Tunnel Mode
+        sock, circuit = connect_epics_socket(host, port, timeout)
+        try:
+            chan = open_channel_socket(sock, circuit, pv_name, timeout)
+            if not isinstance(value, (list, tuple)):
+                value = (value,)
+            req = chan.write(data=value, notify=True)
+            for b in circuit.send(req):
+                sock.sendall(bytes(b))
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                for cmd in drain(sock, circuit, timeout=0.5):
+                    if isinstance(cmd, ca.WriteNotifyResponse):
+                        return
+            raise TimeoutError(f"No write-notify response for {pv_name!r}")
+        finally:
+            sock.close()
+    else:
+        # Native Mode
+        os.environ.pop("EPICS_CA_ADDR_LIST", None)
+        os.environ.pop("EPICS_CA_AUTO_ADDR_LIST", None)
+        ctx = Context()
+        try:
+            pv, = ctx.get_pvs(pv_name)
+            pv.wait_for_connection(timeout=timeout)
+            pv.write(value, wait=True, timeout=timeout)
+        finally:
+            ctx.disconnect()
 
 
 # ---------------------------------------------------------------------------
@@ -198,19 +188,6 @@ def epics_put(
 # ---------------------------------------------------------------------------
 
 class EpicsWorker(QThread):
-    """Background thread that subscribes to EPICS image + metadata PVs
-    and emits fully-reshaped frames as numpy arrays.
-
-    Signals
-    -------
-    new_frame : np.ndarray
-        Emitted each time a complete image frame is received.
-    connection_changed : bool
-        ``True`` when the TCP circuit is established, ``False`` on disconnect.
-    error_occurred : str
-        Human-readable description of a recoverable error.
-    """
-
     new_frame = pyqtSignal(np.ndarray)
     connection_changed = pyqtSignal(bool)
     error_occurred = pyqtSignal(str)
@@ -231,155 +208,164 @@ class EpicsWorker(QThread):
         self.image_pv = image_pv
         self.width_pv = width_pv
         self.height_pv = height_pv
-        self.fallback_shape = fallback_shape  # (height, width) used when metadata PVs fail
+        self.fallback_shape = fallback_shape
         self.debug = debug
 
         self._stop_event = threading.Event()
         self._width: Optional[int] = None
         self._height: Optional[int] = None
 
-    # -- public API ---------------------------------------------------------
-
     def stop(self) -> None:
-        """Request the worker to stop and block until it finishes."""
         self._stop_event.set()
         self.wait()
 
-    # -- thread entry point -------------------------------------------------
+    def run(self) -> None:
+        if self.host:
+            self._run_tunnel_mode()
+        else:
+            self._run_native_mode()
 
-    def run(self) -> None:  # noqa: C901  (complexity inherited from protocol)
-        _RETRY_DELAYS = (2.0, 5.0, 10.0, 30.0)  # seconds between reconnect attempts
+    # --- NATIVE MODE (Control Room) ---
+    def _run_native_mode(self) -> None:
+        os.environ.pop("EPICS_CA_ADDR_LIST", None)
+        os.environ.pop("EPICS_CA_AUTO_ADDR_LIST", None)
+
+        ctx = Context()
+        subs: list[Any] = []
+
+        try:
+            pv_names = [self.image_pv]
+            if self.width_pv: pv_names.append(self.width_pv)
+            if self.height_pv: pv_names.append(self.height_pv)
+
+            pvs = ctx.get_pvs(*pv_names)
+            pv_map = {pv.name: pv for pv in pvs}
+            img_pv = pv_map[self.image_pv]
+
+            print(f"[Native Mode] Waiting for connection to {self.image_pv}...")
+            while not self._stop_event.is_set():
+                try:
+                    img_pv.wait_for_connection(timeout=1.0)
+                    break
+                except ca.CaprotoTimeoutError:
+                    continue
+
+            if self._stop_event.is_set():
+                return
+
+            self.connection_changed.emit(True)
+
+            if self.width_pv and self.width_pv in pv_map:
+                def on_width(sub, response):
+                    if self._stop_event.is_set(): return
+                    if response.data is not None: self._width = int(response.data[0])
+                sub = pv_map[self.width_pv].subscribe()
+                sub.add_callback(on_width)
+                subs.append(sub)
+
+            if self.height_pv and self.height_pv in pv_map:
+                def on_height(sub, response):
+                    if self._stop_event.is_set(): return
+                    if response.data is not None: self._height = int(response.data[0])
+                sub = pv_map[self.height_pv].subscribe()
+                sub.add_callback(on_height)
+                subs.append(sub)
+
+            def on_image(sub, response):
+                if self._stop_event.is_set(): return
+                if response.data is not None:
+                    raw = np.asarray(response.data)
+                    frame = self._reshape(raw)
+                    if frame is not None:
+                        self.new_frame.emit(frame)
+
+            img_sub = img_pv.subscribe()
+            img_sub.add_callback(on_image)
+            subs.append(img_sub)
+
+            while not self._stop_event.is_set():
+                self._stop_event.wait(0.1)
+
+        except Exception as exc:
+            self.error_occurred.emit(str(exc))
+        finally:
+            self.connection_changed.emit(False)
+            ctx.disconnect()
+
+    # --- TUNNEL MODE (SSH) ---
+    def _run_tunnel_mode(self) -> None:
+        _RETRY_DELAYS = (2.0, 5.0, 10.0, 30.0)
         attempt = 0
 
         while not self._stop_event.is_set():
             sock: Optional[socket.socket] = None
             try:
-                print(f"Connecting to {self.host}:{self.port} … (attempt {attempt + 1})")
-                sock, circuit = connect_epics(self.host, self.port)
-                attempt = 0  # reset on successful connection
+                print(f"[Tunnel Mode] Connecting to {self.host}:{self.port} ...")
+                sock, circuit = connect_epics_socket(self.host, self.port)
+                attempt = 0
                 self.connection_changed.emit(True)
 
-                # 1. Mandatory image channel
-                print("Opening image channel …")
-                ch_img = open_channel(sock, circuit, self.image_pv)
+                ch_img = open_channel_socket(sock, circuit, self.image_pv)
                 img_sub_req = ch_img.subscribe(mask=ca.SubscriptionType.DBE_VALUE)
                 img_sub_id = img_sub_req.subscriptionid
-                print(f"  -> image subscription id: {img_sub_id}")
-                for b in circuit.send(img_sub_req):
-                    sock.sendall(bytes(b))
+                for b in circuit.send(img_sub_req): sock.sendall(bytes(b))
 
-                # 2. Optional metadata channels
-                print("Attempting metadata channels …")
-                ch_width = open_channel_safe(sock, circuit, self.width_pv, timeout=2)
-                ch_height = open_channel_safe(sock, circuit, self.height_pv, timeout=2)
+                ch_width = open_channel_safe_socket(sock, circuit, self.width_pv, timeout=2) if self.width_pv else None
+                ch_height = open_channel_safe_socket(sock, circuit, self.height_pv, timeout=2) if self.height_pv else None
 
-                use_metadata = ch_width is not None and ch_height is not None
-                width_sub_id: Optional[int] = None
-                height_sub_id: Optional[int] = None
+                width_sub_id, height_sub_id = None, None
 
-                if use_metadata:
-                    print("Using live metadata for dimensions.")
+                if ch_width and ch_height:
                     w_req = ch_width.subscribe()
                     width_sub_id = w_req.subscriptionid
-                    for b in circuit.send(w_req):
-                        sock.sendall(bytes(b))
+                    for b in circuit.send(w_req): sock.sendall(bytes(b))
 
                     h_req = ch_height.subscribe()
                     height_sub_id = h_req.subscriptionid
-                    for b in circuit.send(h_req):
-                        sock.sendall(bytes(b))
-                else:
-                    if self.fallback_shape is not None:
-                        h, w = self.fallback_shape
-                        print(f"Metadata unavailable — using fallback shape {h}×{w}.")
-                    else:
-                        print("Metadata unavailable — falling back to square guessing.")
+                    for b in circuit.send(h_req): sock.sendall(bytes(b))
 
-                # 3. Event loop
                 while not self._stop_event.is_set():
                     for cmd in drain(sock, circuit, timeout=0.05):
-                        # Helpful debug output to diagnose why array data isn't arriving
-                        if self.debug:
-                            subid = getattr(cmd, "subscriptionid", None)
-                            data_info = "N/A"
-                            try:
-                                if hasattr(cmd, "data"):
-                                    data_info = f"len={len(cmd.data)} type={type(cmd.data).__name__}"
-                            except Exception:
-                                data_info = "<unreadable>"
-                            print(f"DBG CMD: {type(cmd).__name__} subid={subid} {data_info}")
-
                         if not isinstance(cmd, ca.EventAddResponse):
-                            print(f"Received unexpected command: {cmd!r}")
                             continue
 
-                        # — dimension metadata updates —
-                        if use_metadata:
-                            if cmd.subscriptionid == width_sub_id:
-                                self._width = int(cmd.data[0])
-                                continue
-                            if cmd.subscriptionid == height_sub_id:
-                                self._height = int(cmd.data[0])
-                                continue
-
-                        # — image data —
-                        if cmd.subscriptionid == img_sub_id:
-                            # better to use np.frombuffer here if we know data type (likely uint16)
-                            # np.frombuffer is faster but it can't guess the dtype
+                        if cmd.subscriptionid == width_sub_id:
+                            self._width = int(cmd.data[0])
+                        elif cmd.subscriptionid == height_sub_id:
+                            self._height = int(cmd.data[0])
+                        elif cmd.subscriptionid == img_sub_id:
                             raw = np.asarray(cmd.data)
-                            frame = self._reshape(raw, use_metadata)
+                            frame = self._reshape(raw)
                             if frame is not None:
                                 self.new_frame.emit(frame)
-                                # print(f"Emitted new frame of shape {frame.shape}")
 
             except Exception as exc:
-                msg = f"EPICS worker error: {exc}"
-                print(msg)
-                self.error_occurred.emit(msg)
+                self.error_occurred.emit(str(exc))
             finally:
                 self.connection_changed.emit(False)
-                if sock is not None:
-                    print("Closing socket.")
-                    sock.close()
+                if sock is not None: sock.close()
 
-            if self._stop_event.is_set():
-                break
-
+            if self._stop_event.is_set(): break
             delay = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
             attempt += 1
-            print(f"Reconnecting in {delay:.0f} s …")
             self._stop_event.wait(delay)
 
-    # -- internal helpers ---------------------------------------------------
-
-    def _reshape(
-        self,
-        raw: np.ndarray,
-        use_metadata: bool,
-    ) -> Optional[np.ndarray]:
-        """Reshape a flat pixel array into a 2-D frame, or return ``None``."""
-        if use_metadata:
-            if self._width is None or self._height is None:
-                return None
+    # --- COMMON ---
+    def _reshape(self, raw: np.ndarray) -> Optional[np.ndarray]:
+        if self._width is not None and self._height is not None:
             expected = self._width * self._height
             if raw.size >= expected:
                 return raw[:expected].reshape((self._height, self._width))
+
+        if self.fallback_shape is not None:
+            h, w = self.fallback_shape
+            expected = h * w
+            if raw.size >= expected:
+                return raw[:expected].reshape((h, w))
             return None
-        else:
-            if self.fallback_shape is not None:
-                h, w = self.fallback_shape
-                expected = h * w
-                if raw.size >= expected:
-                    return raw[:expected].reshape((h, w))
-                print(
-                    f"[EpicsWorker] Frame size {raw.size} < fallback "
-                    f"{h}×{w} ({expected}); dropping frame."
-                )
-                return None
-            # Last resort: guess a square frame
-            n = raw.size
-            side = int(n ** 0.5)
-            if side * side == n:
-                return raw[:n].reshape((side, side))
-            print(f"[EpicsWorker] Cannot reshape {n} pixels — not square and no fallback configured.")
-            return None
+
+        n = raw.size
+        side = int(n ** 0.5)
+        if side * side == n:
+            return raw[:n].reshape((side, side))
+        return None
