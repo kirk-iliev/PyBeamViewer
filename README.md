@@ -16,6 +16,8 @@ A PyQt6-based GUI application for real-time beam visualization and analysis usin
 - PyQt6
 - pyqtgraph
 - numpy
+- scipy
+- caproto
 
 ## Installation
 
