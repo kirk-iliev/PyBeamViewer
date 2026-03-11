@@ -19,7 +19,7 @@ from typing import Any, List, Optional, Tuple
 
 import caproto as ca
 import numpy as np
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal
 from caproto.threading.client import Context
 
 

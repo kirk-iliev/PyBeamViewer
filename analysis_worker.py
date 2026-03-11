@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 from queue import Empty, Full, Queue
 from typing import Optional
-from PyQt6.QtCore import QThread, pyqtSignal, QObject
+from PyQt5.QtCore import QThread, pyqtSignal, QObject
 
 from state import FrameState
 from analysis import analyze_frame

@@ -1,5 +1,5 @@
 """
-gui.py — PyQt6 GUI (View layer).
+gui.py — PyQt5 GUI (View layer).
 
 Implements the Beam Profile Viewer display window matching the reference
 layout:
@@ -29,9 +29,9 @@ from typing import Optional
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QColor, QPalette
-from PyQt6.QtWidgets import (
+from PyQt5.QtCore import QEvent, Qt, pyqtSignal, pyqtSlot
+from PyQt5.QtGui import QColor, QPalette
+from PyQt5.QtWidgets import (
     QApplication,
     QComboBox,
     QDoubleSpinBox,
@@ -218,7 +218,7 @@ class _ProjectionPlot(QWidget):
         curve_col = theme.h_curve if curve_role == "h" else theme.v_curve
         self.curve = self.pw.plot(pen=pg.mkPen(curve_col, width=1.3))
         self.fit_curve = self.pw.plot(
-            pen=pg.mkPen(theme.fit_curve, width=1.6, style=Qt.PenStyle.DashLine),
+            pen=pg.mkPen(theme.fit_curve, width=1.6, style=Qt.DashLine),
         )
 
         self._apply_theme_internals(theme)
@@ -253,7 +253,7 @@ class _ProjectionPlot(QWidget):
         curve_col = theme.h_curve if self._curve_role == "h" else theme.v_curve
         self.curve.setPen(pg.mkPen(curve_col, width=1.3))
         self.fit_curve.setPen(
-            pg.mkPen(theme.fit_curve, width=1.6, style=Qt.PenStyle.DashLine)
+            pg.mkPen(theme.fit_curve, width=1.6, style=Qt.DashLine)
         )
 
     def apply_theme(self, theme: _Theme) -> None:
@@ -304,7 +304,7 @@ class _ImagePane(QWidget):
 
         # header
         self.header = QLabel(label_text)
-        self.header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.header.setAlignment(Qt.AlignCenter)
         lay.addWidget(self.header)
 
         # image view — background stays dark regardless of theme for visibility
@@ -421,12 +421,12 @@ class BeamViewerWindow(QMainWindow):
         root_layout.setSpacing(0)
 
         # === outer splitter: [images + plots] | [control panel] ===
-        outer = QSplitter(Qt.Orientation.Horizontal)
+        outer = QSplitter(Qt.Horizontal)
         outer.setHandleWidth(3)
         root_layout.addWidget(outer)
 
         # --- left+centre area (images + projections) ---
-        inner = QSplitter(Qt.Orientation.Horizontal)
+        inner = QSplitter(Qt.Horizontal)
         inner.setHandleWidth(3)
 
         #  ┌── images column ──┐
@@ -506,7 +506,7 @@ class BeamViewerWindow(QMainWindow):
 
         self._theme_btn = QPushButton("☀  Light")
         self._theme_btn.setFixedHeight(22)
-        self._theme_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._theme_btn.setCursor(Qt.PointingHandCursor)
         self._theme_btn.clicked.connect(self.toggle_theme)
         self.statusBar().addWidget(self._theme_btn)
 
@@ -713,8 +713,8 @@ class BeamViewerWindow(QMainWindow):
 
     def eventFilter(self, obj: object, event: QEvent) -> bool:  # type: ignore[override]
         """Revert spinbox to last confirmed RBV when Escape is pressed."""
-        if event.type() == QEvent.Type.KeyPress:
-            if event.key() == Qt.Key.Key_Escape:  # type: ignore[attr-defined]
+        if event.type() == QEvent.KeyPress:
+            if event.key() == Qt.Key_Escape:  # type: ignore[attr-defined]
                 if obj is self.exposure_input:
                     self.revert_exposure_spinbox()
                     return True

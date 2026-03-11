@@ -1,4 +1,4 @@
-PyQt6==6.7.0
+PyQt5>=5.15.0
 pyqtgraph==0.13.3
 numpy==1.26.4
 caproto==0.9.3

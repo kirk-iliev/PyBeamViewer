@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 
 import pyqtgraph as pg
-from PyQt6.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication
 
 from controller import BeamController
 from gui import BeamViewerWindow
@@ -34,7 +34,7 @@ def main() -> None:
     window.show()
     controller.start()
 
-    exit_code = app.exec()
+    exit_code = app.exec_()
     controller.stop()
     sys.exit(exit_code)
 
