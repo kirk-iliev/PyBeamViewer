@@ -139,8 +139,8 @@ def epics_get(host: str, port: int, pv_name: str, timeout: float = 5.0):
             sock.close()
     else:
         # Native Mode
-        os.environ.pop("EPICS_CA_ADDR_LIST", None)
-        os.environ.pop("EPICS_CA_AUTO_ADDR_LIST", None)
+        #os.environ.pop("EPICS_CA_ADDR_LIST", None)
+        #os.environ.pop("EPICS_CA_AUTO_ADDR_LIST", None)
         ctx = Context()
         try:
             pv, = ctx.get_pvs(pv_name)
@@ -172,8 +172,8 @@ def epics_put(host: str, port: int, pv_name: str, value, timeout: float = 5.0) -
             sock.close()
     else:
         # Native Mode
-        os.environ.pop("EPICS_CA_ADDR_LIST", None)
-        os.environ.pop("EPICS_CA_AUTO_ADDR_LIST", None)
+        #os.environ.pop("EPICS_CA_ADDR_LIST", None)
+        #os.environ.pop("EPICS_CA_AUTO_ADDR_LIST", None)
         ctx = Context()
         try:
             pv, = ctx.get_pvs(pv_name)
@@ -227,8 +227,12 @@ class EpicsWorker(QThread):
 
     # --- NATIVE MODE (Control Room) ---
     def _run_native_mode(self) -> None:
-        os.environ.pop("EPICS_CA_ADDR_LIST", None)
-        os.environ.pop("EPICS_CA_AUTO_ADDR_LIST", None)
+        # Only clear env vars if they're not already set
+        # (respect pre-configured EPICS_CA_ADDR_LIST from the environment)
+        #if "EPICS_CA_ADDR_LIST" not in os.environ:
+        #    os.environ.pop("EPICS_CA_ADDR_LIST", None)
+        #if "EPICS_CA_AUTO_ADDR_LIST" not in os.environ:
+        #    os.environ.pop("EPICS_CA_AUTO_ADDR_LIST", None)
 
         ctx = Context()
         subs: list[Any] = []
@@ -355,17 +359,20 @@ class EpicsWorker(QThread):
         if self._width is not None and self._height is not None:
             expected = self._width * self._height
             if raw.size >= expected:
+                print(f"DEBUG: Using provided shape ({self._width}x{self._height}) for {raw.size} pixels")
                 return raw[:expected].reshape((self._height, self._width))
 
         if self.fallback_shape is not None:
             h, w = self.fallback_shape
             expected = h * w
             if raw.size >= expected:
+                print(f"DEBUG: Using fallback shape ({w}x{h}) for {raw.size} pixels")
                 return raw[:expected].reshape((h, w))
             return None
 
         n = raw.size
         side = int(n ** 0.5)
         if side * side == n:
+            print(f"DEBUG: Inferring square shape ({side}x{side}) from {n} pixels")
             return raw[:n].reshape((side, side))
         return None
