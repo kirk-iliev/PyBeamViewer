@@ -24,7 +24,7 @@ import time
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from analysis_worker import AnalysisWorker
 from config import get_available_prefixes, get_active_prefix, get_pv_names
