@@ -288,7 +288,17 @@ class _ProjectionPlot(QWidget):
 
 
 class _ImagePane(QWidget):
-    """Camera image display with a thin header label and optional ROI overlay."""
+    """Camera image display with a thin header label and optional ROI overlay.
+
+    When *enable_roi* is True the pane supports click-and-drag to draw a
+    rectangular region of interest.  The result is emitted via *roi_changed*
+    as a ``(x0, y0, x1, y1)`` tuple in image-pixel coordinates, or ``None``
+    when the ROI is cleared.  The overlay rectangle is purely decorative —
+    it is not interactive after being drawn.
+    """
+
+    # Emits (x0, y0, x1, y1) when drawn, or None when cleared.
+    roi_changed = pyqtSignal(object)
 
     def __init__(
         self,
@@ -298,6 +308,13 @@ class _ImagePane(QWidget):
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
+        self._enable_roi = enable_roi
+
+        # Click-drag state
+        self._drawing: bool = False
+        self._draw_start: Optional[tuple] = None   # (x, y) in data coords
+        self._current_roi: Optional[tuple] = None  # (x0, y0, x1, y1)
+
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
@@ -326,22 +343,144 @@ class _ImagePane(QWidget):
         self._levels_set = False
         self._levels_interval = 30
 
-        # --- optional ROI overlay ---
-        self.roi_rect: Optional[pg.ROI] = None
-        self._roi_initialized = False
+        # --- optional ROI overlay (click-drag to draw) ---
+        self._roi_display: Optional[pg.ROI] = None
         if enable_roi:
-            self.roi_rect = pg.RectROI(
-                [10, 10], [100, 100],
+            # Non-interactive display rectangle — no handles, not movable.
+            # Lives in data/view space so it scales correctly with the image.
+            self._roi_display = pg.ROI(
+                [0, 0], [1, 1],
+                movable=False,
                 pen=pg.mkPen("#ff5555", width=2),
-                hoverPen=pg.mkPen("#ffff55", width=2),
             )
-            self.roi_rect.addScaleHandle([1, 1], [0, 0])
-            self.roi_rect.addScaleHandle([0, 0], [1, 1])
-            self.roi_rect.addScaleHandle([1, 0], [0, 1])
-            self.roi_rect.addScaleHandle([0, 1], [1, 0])
-            self.plot.addItem(self.roi_rect)
+            self._roi_display.setAcceptHoverEvents(False)
+            self._roi_display.setAcceptedMouseButtons(Qt.NoButton)
+            self._roi_display.hide()
+            self.plot.addItem(self._roi_display)
+
+            # Crosshair cursor signals that the user can draw here
+            self.plot.setCursor(Qt.CrossCursor)
+
+            # Disable ViewBox pan/zoom — the image auto-fits; we own the mouse
+            self.plot.getViewBox().setMouseEnabled(x=False, y=False)
+
+            # Capture viewport mouse events for drag-to-draw
+            self.plot.viewport().installEventFilter(self)
 
         self._apply_header_style(theme)
+
+    # ------------------------------------------------------------------
+    # Mouse event filter — ROI drawing
+    # ------------------------------------------------------------------
+
+    def eventFilter(self, obj: object, event: QEvent) -> bool:  # type: ignore[override]
+        if not self._enable_roi or obj is not self.plot.viewport():
+            return super().eventFilter(obj, event)
+
+        etype = event.type()
+
+        if etype == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            pt = self._viewport_to_data(event.pos())
+            if pt is not None:
+                self._drawing = True
+                self._draw_start = (pt.x(), pt.y())
+                # Hide any previous ROI while the user starts a new draw
+                if self._roi_display is not None:
+                    self._roi_display.hide()
+            return True
+
+        if etype == QEvent.MouseMove and self._drawing:
+            pt = self._viewport_to_data(event.pos())
+            if pt is not None and self._draw_start is not None:
+                self._live_update_display(pt.x(), pt.y())
+            return True
+
+        if (
+            etype == QEvent.MouseButtonRelease
+            and event.button() == Qt.LeftButton
+            and self._drawing
+        ):
+            self._drawing = False
+            pt = self._viewport_to_data(event.pos())
+            if pt is not None and self._draw_start is not None:
+                x0, y0 = self._draw_start
+                x1, y1 = pt.x(), pt.y()
+                lx, rx = min(x0, x1), max(x0, x1)
+                ty, by = min(y0, y1), max(y0, y1)
+                if rx - lx >= 5 and by - ty >= 5:
+                    self._current_roi = (int(lx), int(ty), int(rx), int(by))
+                    self._sync_roi_display()
+                    self.roi_changed.emit(self._current_roi)
+                else:
+                    # Drag too small — treat as a cancelled draw
+                    if self._roi_display is not None:
+                        self._roi_display.hide()
+            return True
+
+        return super().eventFilter(obj, event)
+
+    def _viewport_to_data(self, vp_pos) -> Optional[pg.Point]:
+        """Convert a viewport QPoint to view/data coordinates."""
+        try:
+            scene_pos = self.plot.mapToScene(vp_pos)
+            return self.plot.getViewBox().mapSceneToView(scene_pos)
+        except Exception:
+            return None
+
+    def _live_update_display(self, x1: float, y1: float) -> None:
+        """Redraw the overlay rectangle live during a drag."""
+        if self._draw_start is None or self._roi_display is None:
+            return
+        x0, y0 = self._draw_start
+        lx, rx = min(x0, x1), max(x0, x1)
+        ty, by = min(y0, y1), max(y0, y1)
+        self._roi_display.blockSignals(True)
+        self._roi_display.setPos([lx, ty])
+        self._roi_display.setSize([rx - lx, by - ty])
+        self._roi_display.blockSignals(False)
+        self._roi_display.show()
+
+    def _sync_roi_display(self) -> None:
+        """Update the overlay rectangle to match *_current_roi*."""
+        if self._current_roi is None or self._roi_display is None:
+            return
+        x0, y0, x1, y1 = self._current_roi
+        self._roi_display.blockSignals(True)
+        self._roi_display.setPos([x0, y0])
+        self._roi_display.setSize([x1 - x0, y1 - y0])
+        self._roi_display.blockSignals(False)
+        self._roi_display.show()
+
+    # ------------------------------------------------------------------
+    # Public ROI API
+    # ------------------------------------------------------------------
+
+    @property
+    def current_roi(self) -> Optional[tuple]:
+        """Current ROI as ``(x0, y0, x1, y1)`` in image pixels, or None."""
+        return self._current_roi
+
+    def clear_roi(self) -> None:
+        """Clear the current ROI selection and emit *roi_changed(None)*."""
+        self._current_roi = None
+        self._drawing = False
+        self._draw_start = None
+        if self._roi_display is not None:
+            self._roi_display.hide()
+        self.roi_changed.emit(None)
+
+    def set_roi(self, roi: Optional[tuple]) -> None:
+        """Programmatically set or clear the ROI, emitting *roi_changed*."""
+        if roi is None:
+            self.clear_roi()
+            return
+        self._current_roi = roi
+        self._sync_roi_display()
+        self.roi_changed.emit(self._current_roi)
+
+    # ------------------------------------------------------------------
+    # Standard pane API
+    # ------------------------------------------------------------------
 
     def _apply_header_style(self, theme: _Theme) -> None:
         self.header.setStyleSheet(
@@ -364,23 +503,15 @@ class _ImagePane(QWidget):
                 self.image_item.setLevels([lo, hi])
                 self._levels_set = True
 
-        # Auto-initialise ROI to centre 50 % of the first frame
-        if self.roi_rect is not None and not self._roi_initialized:
-            h, w = frame.shape[:2]
-            self.roi_rect.setPos([w * 0.25, h * 0.25])
-            self.roi_rect.setSize([w * 0.5, h * 0.5])
-            self._roi_initialized = True
-
     def get_roi_slice(self, frame: np.ndarray) -> Optional[np.ndarray]:
-        """Return the sub-array of *frame* inside the current ROI, or None."""
-        if self.roi_rect is None:
+        """Return the sub-array of *frame* clipped to *current_roi*, or None."""
+        if self._current_roi is None:
             return None
-        pos = self.roi_rect.pos()
-        size = self.roi_rect.size()
-        x0 = max(0, int(pos.x()))
-        y0 = max(0, int(pos.y()))
-        x1 = min(frame.shape[1], int(pos.x() + size.x()))
-        y1 = min(frame.shape[0], int(pos.y() + size.y()))
+        x0, y0, x1, y1 = self._current_roi
+        x0 = max(0, x0)
+        y0 = max(0, y0)
+        x1 = min(frame.shape[1], x1)
+        y1 = min(frame.shape[0], y1)
         if x1 <= x0 or y1 <= y0:
             return None
         return frame[y0:y1, x0:x1]
@@ -403,6 +534,7 @@ class BeamViewerWindow(QMainWindow):
     streaming_toggled = pyqtSignal(bool)
     colormap_changed = pyqtSignal(str)
     fit_full_toggled = pyqtSignal(bool)
+    roi_changed = pyqtSignal(object)  # (x0, y0, x1, y1) tuple or None when cleared
     # Emitted from a background thread when ROI fitting completes.
     # Payload is a tuple (seq: int, bp: BeamParameters).
     _roi_analysis_ready = pyqtSignal(object)
@@ -448,8 +580,8 @@ class BeamViewerWindow(QMainWindow):
         # Wire up the cross-thread ROI result signal.
         self._roi_analysis_ready.connect(self._on_roi_analysis_ready)
 
-        # Update ROI pane whenever the ROI rectangle is moved / resized
-        self.image_pane_1.roi_rect.sigRegionChanged.connect(self._update_roi)
+        # ROI selection: _on_roi_changed handles visibility + persistence
+        self.image_pane_1.roi_changed.connect(self._on_roi_changed)
 
         img_lay.addWidget(self.image_pane_1, stretch=1)
         img_lay.addWidget(self.image_pane_2, stretch=1)
@@ -482,6 +614,12 @@ class BeamViewerWindow(QMainWindow):
 
         inner.setStretchFactor(0, 2)   # images
         inner.setStretchFactor(1, 3)   # projections
+
+        # ROI section (bottom pane + ROI projections) hidden until the user
+        # draws a selection on the full image.
+        self.image_pane_2.hide()
+        self.h_proj_2.hide()
+        self.v_proj_2.hide()
 
         outer.addWidget(inner)
 
@@ -633,6 +771,11 @@ class BeamViewerWindow(QMainWindow):
         self.fit_roi_btn.setMinimumHeight(28)
         analysis_lay.addWidget(self.fit_roi_btn)
 
+        self.clear_roi_btn = QPushButton("✕  Clear ROI")
+        self.clear_roi_btn.setMinimumHeight(28)
+        self.clear_roi_btn.setToolTip("Remove the current ROI selection")
+        analysis_lay.addWidget(self.clear_roi_btn)
+
         lay.addWidget(analysis_grp)
 
         # ── Image Settings ────────────────────────────────────────
@@ -671,6 +814,7 @@ class BeamViewerWindow(QMainWindow):
         self.stream_btn.toggled.connect(self._on_stream_toggled)
         self.fit_full_btn.toggled.connect(self._on_fit_full_toggled)
         self.fit_roi_btn.toggled.connect(self._on_fit_roi_toggled)
+        self.clear_roi_btn.clicked.connect(self._on_clear_roi_clicked)
         self.colormap_combo.currentTextChanged.connect(
             self.colormap_changed.emit,
         )
@@ -696,6 +840,9 @@ class BeamViewerWindow(QMainWindow):
         )
         # ROI fitting is handled entirely in the GUI; just refresh
         self._update_roi()
+
+    def _on_clear_roi_clicked(self) -> None:
+        self.image_pane_1.clear_roi()
 
     # ------------------------------------------------------------------
     # Control panel public API
@@ -803,8 +950,39 @@ class BeamViewerWindow(QMainWindow):
         self._update_roi()
 
     # ------------------------------------------------------------------
-    # ROI helper
+    # ROI helpers
     # ------------------------------------------------------------------
+
+    def _set_roi_section_visible(self, visible: bool) -> None:
+        """Show or hide the ROI image pane and its projection plots."""
+        self.image_pane_2.setVisible(visible)
+        self.h_proj_2.setVisible(visible)
+        self.v_proj_2.setVisible(visible)
+
+    @pyqtSlot(object)
+    def _on_roi_changed(self, roi: object) -> None:
+        """Called when the user draws a new ROI or clears the existing one."""
+        self._set_roi_section_visible(roi is not None)
+        if roi is not None:
+            self._update_roi()
+            # Clear stale projections from a previous ROI when a new one is drawn
+        else:
+            self.h_proj_2.clear_fit()
+            self.v_proj_2.clear_fit()
+        self.roi_changed.emit(roi)
+
+    def restore_roi(self, roi: Optional[tuple]) -> None:
+        """Silently restore a saved ROI (does not trigger save-to-config)."""
+        self.image_pane_1.blockSignals(True)
+        self.image_pane_1.set_roi(roi)
+        self.image_pane_1.blockSignals(False)
+        self._set_roi_section_visible(roi is not None)
+        if roi is not None and self._last_frame is not None:
+            self._update_roi()
+
+    def get_current_roi(self) -> Optional[tuple]:
+        """Return the active ROI as ``(x0, y0, x1, y1)`` or None."""
+        return self.image_pane_1.current_roi
 
     def _update_roi(self) -> None:
         """Extract the ROI from the cached frame and refresh the bottom pane.

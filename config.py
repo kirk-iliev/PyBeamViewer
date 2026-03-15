@@ -89,3 +89,33 @@ def get_active_prefix() -> str:
     """Return the currently active PV prefix from config."""
     config = load_config()
     return config.get("active_prefix", "BL31")
+
+
+# ---------------------------------------------------------------------------
+# ROI persistence
+# ---------------------------------------------------------------------------
+
+def save_roi_for_prefix(prefix: str, roi: Optional[tuple]) -> None:
+    """Persist the ROI ``(x0, y0, x1, y1)`` for *prefix* in config.json.
+
+    Pass *roi=None* to remove a previously saved selection.
+    """
+    config_path = _get_config_path()
+    config = load_config()
+    rois: Dict[str, Any] = config.setdefault("roi_selections", {})
+    if roi is None:
+        rois.pop(prefix, None)
+    else:
+        x0, y0, x1, y1 = roi
+        rois[prefix] = {"x0": x0, "y0": y0, "x1": x1, "y1": y1}
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
+
+
+def get_roi_for_prefix(prefix: str) -> Optional[tuple]:
+    """Return the saved ROI ``(x0, y0, x1, y1)`` for *prefix*, or None."""
+    config = load_config()
+    entry = config.get("roi_selections", {}).get(prefix)
+    if entry is None:
+        return None
+    return (entry["x0"], entry["y0"], entry["x1"], entry["y1"])

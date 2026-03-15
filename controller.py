@@ -27,7 +27,13 @@ import pyqtgraph as pg
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from analysis_worker import AnalysisWorker
-from config import get_available_prefixes, get_active_prefix, get_pv_names
+from config import (
+    get_available_prefixes,
+    get_active_prefix,
+    get_pv_names,
+    get_roi_for_prefix,
+    save_roi_for_prefix,
+)
 from epics_layer import EpicsWorker, epics_get, epics_put
 from gui import BeamViewerWindow
 from state import AppState, FrameState
@@ -56,6 +62,7 @@ class BeamController(QObject):
         self.gui = gui
         self._streaming: bool = True
         self._fit_full: bool = True
+        self._active_prefix: str = get_active_prefix()
 
         # --- create workers (not started yet) ---
         self._epics_worker = EpicsWorker(
@@ -80,6 +87,7 @@ class BeamController(QObject):
         self.gui.streaming_toggled.connect(self._on_streaming_toggled)
         self.gui.fit_full_toggled.connect(self._on_fit_full_toggled)
         self.gui.colormap_changed.connect(self._on_colormap_changed)
+        self.gui.roi_changed.connect(self._on_roi_changed)
 
         # --- thread-safe RBV update signals ---
         self._exposure_rbv_updated.connect(self.gui.set_exposure_rbv)
@@ -109,6 +117,10 @@ class BeamController(QObject):
         self._analysis_worker.start()
         self._epics_worker.start()
         self._refresh_camera_settings()
+        # Restore any previously saved ROI for the active camera
+        saved_roi = get_roi_for_prefix(self._active_prefix)
+        if saved_roi is not None:
+            self.gui.restore_roi(saved_roi)
 
     def stop(self) -> None:
         """Gracefully shut down both worker threads."""
@@ -165,7 +177,12 @@ class BeamController(QObject):
     def _on_prefix_change(self, prefix: str) -> None:
         """Switch to a different camera PV prefix."""
         print(f"Switching to prefix: {prefix}")
+
+        # Save the current ROI for the camera we are leaving
+        save_roi_for_prefix(self._active_prefix, self.gui.get_current_roi())
+
         self._epics_worker.stop()
+        self._active_prefix = prefix
 
         pv_names = get_pv_names(prefix)
         self.state.image_pv = pv_names["image_pv"]
@@ -191,6 +208,8 @@ class BeamController(QObject):
         self._connect_epics_signals()
         self._epics_worker.start()
         self._refresh_camera_settings()
+        # Restore any previously saved ROI for the newly selected camera
+        self.gui.restore_roi(get_roi_for_prefix(prefix))
 
     def _refresh_camera_settings(self) -> None:
         """Read exposure and gain RBVs from EPICS in a background thread."""
@@ -276,3 +295,8 @@ class BeamController(QObject):
             self.gui.image_pane_2.image_item.setLookupTable(lut)
         except Exception as exc:
             print(f"Failed to set colormap '{name}': {exc}")
+
+    @pyqtSlot(object)
+    def _on_roi_changed(self, roi: object) -> None:
+        """Persist the ROI for the active camera whenever it changes."""
+        save_roi_for_prefix(self._active_prefix, roi)  # type: ignore[arg-type]
