@@ -359,20 +359,20 @@ class EpicsWorker(QThread):
         if self._width is not None and self._height is not None:
             expected = self._width * self._height
             if raw.size >= expected:
-                print(f"DEBUG: Using provided shape ({self._width}x{self._height}) for {raw.size} pixels")
+                #print(f"DEBUG: Using provided shape ({self._width}x{self._height}) for {raw.size} pixels")
                 return raw[:expected].reshape((self._height, self._width))
 
         if self.fallback_shape is not None:
             h, w = self.fallback_shape
             expected = h * w
             if raw.size >= expected:
-                print(f"DEBUG: Using fallback shape ({w}x{h}) for {raw.size} pixels")
+                #print(f"DEBUG: Using fallback shape ({w}x{h}) for {raw.size} pixels")
                 return raw[:expected].reshape((h, w))
             return None
 
         n = raw.size
         side = int(n ** 0.5)
         if side * side == n:
-            print(f"DEBUG: Inferring square shape ({side}x{side}) from {n} pixels")
+            #print(f"DEBUG: Inferring square shape ({side}x{side}) from {n} pixels")
             return raw[:n].reshape((side, side))
         return None
