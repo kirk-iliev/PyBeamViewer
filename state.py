@@ -72,6 +72,8 @@ class AppState:
         self._frame_state: Optional[FrameState] = None
         self._connected: bool = False
         self._frame_count: int = 0
+        self._background_frame: Optional[np.ndarray] = None
+        self._bg_subtraction_enabled: bool = False
 
         # ---- Display / analysis settings ----------------------------------
         self.enable_fitting: bool = display_opts.get("enable_fitting", True)
@@ -112,3 +114,25 @@ class AppState:
         with self._lock:
             self._frame_count += 1
             return self._frame_count
+
+    # -- background_frame ---------------------------------------------------
+    @property
+    def background_frame(self) -> Optional[np.ndarray]:
+        with self._lock:
+            return self._background_frame
+
+    @background_frame.setter
+    def background_frame(self, value: Optional[np.ndarray]) -> None:
+        with self._lock:
+            self._background_frame = value
+
+    # -- bg_subtraction_enabled ---------------------------------------------
+    @property
+    def bg_subtraction_enabled(self) -> bool:
+        with self._lock:
+            return self._bg_subtraction_enabled
+
+    @bg_subtraction_enabled.setter
+    def bg_subtraction_enabled(self, value: bool) -> None:
+        with self._lock:
+            self._bg_subtraction_enabled = value

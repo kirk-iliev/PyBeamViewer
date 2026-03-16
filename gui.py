@@ -589,6 +589,8 @@ class BeamViewerWindow(QMainWindow):
     fit_full_toggled = pyqtSignal(bool)
     roi_changed = pyqtSignal(object)  # (x0, y0, x1, y1) tuple or None when cleared
     center_roi_requested = pyqtSignal()
+    acquire_background_requested = pyqtSignal()
+    bg_subtraction_toggled = pyqtSignal(bool)
     # Emitted from a background thread when ROI fitting completes.
     # Payload is a tuple (seq: int, bp: BeamParameters).
     _roi_analysis_ready = pyqtSignal(object)
@@ -745,6 +747,11 @@ class BeamViewerWindow(QMainWindow):
             for lbl in grp.findChildren(QLabel):
                 lbl.setStyleSheet(f"color: {theme.text_dim}; font-size: 12px;")
 
+        # Refresh bg status label colour with new theme colours
+        has_bg = self.bg_status_label.property("has_bg") or False
+        sub_on = self.bg_subtract_btn.isChecked()
+        self._update_bg_status_label(has_bg, sub_on)
+
     # ------------------------------------------------------------------
     # Control panel
     # ------------------------------------------------------------------
@@ -805,6 +812,26 @@ class BeamViewerWindow(QMainWindow):
         self.stream_btn.setChecked(True)
         self.stream_btn.setMinimumHeight(32)
         acq_lay.addWidget(self.stream_btn)
+
+        self.acquire_bg_btn = QPushButton("⏺  Acquire Background")
+        self.acquire_bg_btn.setMinimumHeight(28)
+        self.acquire_bg_btn.setToolTip("Capture the current frame as the background reference")
+        acq_lay.addWidget(self.acquire_bg_btn)
+
+        self.bg_subtract_btn = QPushButton("Background Sub")
+        self.bg_subtract_btn.setCheckable(True)
+        self.bg_subtract_btn.setChecked(False)
+        self.bg_subtract_btn.setEnabled(False)   # disabled until a BG is acquired
+        self.bg_subtract_btn.setMinimumHeight(28)
+        self.bg_subtract_btn.setToolTip("Subtract the stored background from every incoming frame")
+        acq_lay.addWidget(self.bg_subtract_btn)
+
+        self.bg_status_label = QLabel("BG: none")
+        self.bg_status_label.setAlignment(Qt.AlignCenter)
+        self.bg_status_label.setStyleSheet(
+            f"color: {self._theme.text_dim}; font-size: 11px; font-family: {_MONO};"
+        )
+        acq_lay.addWidget(self.bg_status_label)
 
         lay.addWidget(acq_grp)
 
@@ -882,6 +909,8 @@ class BeamViewerWindow(QMainWindow):
         self.colormap_combo.currentTextChanged.connect(
             self.colormap_changed.emit,
         )
+        self.acquire_bg_btn.clicked.connect(self.acquire_background_requested.emit)
+        self.bg_subtract_btn.toggled.connect(self._on_bg_subtraction_toggled)
 
         return panel
 
@@ -891,6 +920,15 @@ class BeamViewerWindow(QMainWindow):
             "▶  Streaming" if checked else "⏸  Paused"
         )
         self.streaming_toggled.emit(checked)
+
+    def _on_bg_subtraction_toggled(self, checked: bool) -> None:
+        self.bg_subtract_btn.setText(
+            "✓  Background Sub ON" if checked else "Background Sub OFF"
+        )
+        self.bg_subtraction_toggled.emit(checked)
+        # Refresh the status label text to reflect the new state
+        has_bg = self.bg_status_label.property("has_bg") or False
+        self._update_bg_status_label(has_bg, checked)
 
     def _on_fit_full_toggled(self, checked: bool) -> None:
         self.fit_full_btn.setText(
@@ -944,6 +982,49 @@ class BeamViewerWindow(QMainWindow):
         ny1 = min(fh, cy + half)
 
         self.image_pane_1.set_roi((nx0, ny0, nx1, ny1))
+
+    # ------------------------------------------------------------------
+    # Background subtraction UI
+    # ------------------------------------------------------------------
+
+    def _update_bg_status_label(self, has_bg: bool, sub_enabled: bool) -> None:
+        """Internal helper — update bg_status_label text and colour."""
+        if not has_bg:
+            text = "BG: none"
+            style = f"color: {self._theme.text_dim}; font-size: 11px; font-family: {_MONO};"
+        elif sub_enabled:
+            text = "BG: acquired  |  Sub: ON"
+            style = f"color: {self._theme.accent}; font-size: 11px; font-family: {_MONO}; font-weight: 600;"
+        else:
+            text = "BG: acquired  |  Sub: OFF"
+            style = f"color: {self._theme.text_dim}; font-size: 11px; font-family: {_MONO};"
+        self.bg_status_label.setText(text)
+        self.bg_status_label.setStyleSheet(style)
+        self.bg_status_label.setProperty("has_bg", has_bg)
+
+    def set_bg_status(self, has_bg: bool, sub_enabled: bool) -> None:
+        """Called by the controller after background acquisition or toggle.
+
+        Enables/disables the subtraction toggle and updates the status label.
+        Does NOT emit any signal (controller-driven update).
+        """
+        self.bg_subtract_btn.setEnabled(has_bg)
+        self.bg_subtract_btn.blockSignals(True)
+        self.bg_subtract_btn.setChecked(sub_enabled)
+        self.bg_subtract_btn.setText(
+            "✓  Background Sub ON" if sub_enabled else "Background Sub OFF"
+        )
+        self.bg_subtract_btn.blockSignals(False)
+        self._update_bg_status_label(has_bg, sub_enabled)
+
+    def reset_bg_controls(self) -> None:
+        """Reset all background controls to their initial state (e.g. on camera switch)."""
+        self.bg_subtract_btn.blockSignals(True)
+        self.bg_subtract_btn.setChecked(False)
+        self.bg_subtract_btn.setText("Background Sub")
+        self.bg_subtract_btn.setEnabled(False)
+        self.bg_subtract_btn.blockSignals(False)
+        self._update_bg_status_label(has_bg=False, sub_enabled=False)
 
     # ------------------------------------------------------------------
     # Control panel public API

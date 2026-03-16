@@ -62,6 +62,7 @@ class BeamController(QObject):
         self.gui = gui
         self._streaming: bool = True
         self._fit_full: bool = True
+        self._acquire_next_frame: bool = False
         self._active_prefix: str = get_active_prefix()
 
         # --- create workers (not started yet) ---
@@ -88,6 +89,8 @@ class BeamController(QObject):
         self.gui.fit_full_toggled.connect(self._on_fit_full_toggled)
         self.gui.colormap_changed.connect(self._on_colormap_changed)
         self.gui.roi_changed.connect(self._on_roi_changed)
+        self.gui.acquire_background_requested.connect(self._on_acquire_background_requested)
+        self.gui.bg_subtraction_toggled.connect(self._on_bg_subtraction_toggled)
 
         # --- thread-safe RBV update signals ---
         self._exposure_rbv_updated.connect(self.gui.set_exposure_rbv)
@@ -146,6 +149,33 @@ class BeamController(QObject):
         """Handle incoming frame — drop silently when streaming is paused."""
         if not self._streaming:
             return
+
+        # --- Background acquisition ---
+        if self._acquire_next_frame:
+            self.state.background_frame = frame.copy()
+            self._acquire_next_frame = False
+            # Automatically activate subtraction after acquiring (mirrors MATLAB behaviour)
+            self.state.bg_subtraction_enabled = True
+            self.gui.set_bg_status(has_bg=True, sub_enabled=True)
+            print("Background frame captured.")
+
+        # --- Background subtraction ---
+        bg = self.state.background_frame
+        if self.state.bg_subtraction_enabled and bg is not None:
+            if frame.shape == bg.shape:
+                # Cast to int32 to prevent unsigned underflow, clip to [0, …], restore dtype
+                subtracted = np.clip(
+                    frame.astype(np.int32) - bg.astype(np.int32),
+                    0,
+                    None,
+                ).astype(frame.dtype)
+                frame = subtracted
+            else:
+                print(
+                    f"[BG Sub] Shape mismatch: frame {frame.shape} vs background {bg.shape}. "
+                    "Skipping subtraction."
+                )
+
         count = self.state.increment_frame_count()
         frame_state = FrameState(
             frame=frame,
@@ -210,6 +240,11 @@ class BeamController(QObject):
         self._refresh_camera_settings()
         # Restore any previously saved ROI for the newly selected camera
         self.gui.restore_roi(get_roi_for_prefix(prefix))
+
+        # Clear background when switching cameras (background is camera-specific)
+        self.state.background_frame = None
+        self.state.bg_subtraction_enabled = False
+        self.gui.reset_bg_controls()
 
     def _refresh_camera_settings(self) -> None:
         """Read exposure and gain RBVs from EPICS in a background thread."""
@@ -280,6 +315,21 @@ class BeamController(QObject):
         self._streaming = streaming
         status = "resumed" if streaming else "paused"
         print(f"Streaming {status}")
+
+    @pyqtSlot()
+    def _on_acquire_background_requested(self) -> None:
+        """Flag that the next incoming frame should be stored as the background."""
+        self._acquire_next_frame = True
+        print("Background acquisition requested — will capture on next frame.")
+
+    @pyqtSlot(bool)
+    def _on_bg_subtraction_toggled(self, enabled: bool) -> None:
+        """Enable or disable background subtraction."""
+        self.state.bg_subtraction_enabled = enabled
+        has_bg = self.state.background_frame is not None
+        # Update status label to reflect new toggle state
+        self.gui.set_bg_status(has_bg=has_bg, sub_enabled=enabled)
+        print(f"Background subtraction {'enabled' if enabled else 'disabled'}.")
 
     def _on_fit_full_toggled(self, enabled: bool) -> None:
         """Enable or disable Gaussian fitting on the full image."""
