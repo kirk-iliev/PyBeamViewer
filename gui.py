@@ -163,7 +163,7 @@ class _Theme:
 
 DARK = _Theme(
     name="dark",
-    bg="#1a1a2e",       panel_bg="#16213e",  border="#1a3a5c",
+    bg="#141423",       panel_bg="#16213e",  border="#1a3a5c",
     accent="#00adb5",   text="#e0e0e0",      text_dim="#7a7a9a",
     plot_bg="#1a1a2e",  image_bg="#000000",  pg_fg="#e0e0e0",
     h_curve="#00e5ff",  v_curve="#ce93d8",   fit_curve="#ff5555",
@@ -807,13 +807,13 @@ class BeamViewerWindow(QMainWindow):
         acq_grp = QGroupBox("Acquire")
         acq_lay = QVBoxLayout(acq_grp)
         acq_lay.setContentsMargins(8, 12, 8, 8)
-        self.stream_btn = QPushButton("▶  Streaming")
+        self.stream_btn = QPushButton("Streaming")
         self.stream_btn.setCheckable(True)
         self.stream_btn.setChecked(True)
         self.stream_btn.setMinimumHeight(32)
         acq_lay.addWidget(self.stream_btn)
 
-        self.acquire_bg_btn = QPushButton("⏺  Acquire Background")
+        self.acquire_bg_btn = QPushButton("Acquire Background")
         self.acquire_bg_btn.setMinimumHeight(28)
         self.acquire_bg_btn.setToolTip("Capture the current frame as the background reference")
         acq_lay.addWidget(self.acquire_bg_btn)
@@ -915,10 +915,19 @@ class BeamViewerWindow(QMainWindow):
         return panel
 
     def _on_stream_toggled(self, checked: bool) -> None:
-        """Update button text and emit streaming signal."""
-        self.stream_btn.setText(
-            "▶  Streaming" if checked else "⏸  Paused"
-        )
+        """Update button text, color, and emit streaming signal."""
+        if checked:
+            self.stream_btn.setText("Streaming")
+            # Green background for streaming
+            self.stream_btn.setStyleSheet(
+                f"QPushButton {{ background-color: #2ecc71; color: #ffffff; font-weight: 600; }}"
+            )
+        else:
+            self.stream_btn.setText("Paused")
+            # Red background for paused
+            self.stream_btn.setStyleSheet(
+                f"QPushButton {{ background-color: #e74c3c; color: #ffffff; font-weight: 600; }}"
+            )
         self.streaming_toggled.emit(checked)
 
     def _on_bg_subtraction_toggled(self, checked: bool) -> None:
