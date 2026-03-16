@@ -264,6 +264,19 @@ class _ProjectionPlot(QWidget):
     def set_projection(self, data: np.ndarray) -> None:
         self.curve.setData(data)
 
+        # Set axis limits with padding to prevent constant readjustment
+        if len(data) > 0:
+            y_min, y_max = np.min(data), np.max(data)
+            y_range = y_max - y_min
+            # Add 10% padding on both sides
+            padding = max(y_range * 0.1, 1e-6)  # Small epsilon to avoid degenerate cases
+            self.pw.setYRange(y_min - padding, y_max + padding, padding=0)
+
+            # X-axis: full range of data indices with padding
+            x_max = len(data) - 1
+            x_padding = max(x_max * 0.05, 1)  # 5% padding for x-axis
+            self.pw.setXRange(-x_padding, x_max + x_padding, padding=0)
+
     def set_fit(
         self,
         fitted: np.ndarray,
@@ -329,8 +342,10 @@ class _ImagePane(QWidget):
         self.plot.setBackground(theme.image_bg)
         self.plot.setAspectLocked(True)
         self.plot.invertY(True)
-        self.plot.hideAxis("bottom")
-        self.plot.hideAxis("left")
+        self.plot.setLabel('bottom', 'X (pixels)')
+        self.plot.setLabel('left', 'Y (pixels)')
+        self.plot.showAxis('bottom')
+        self.plot.showAxis('left')
         lay.addWidget(self.plot, stretch=1)
 
         self.image_item = pg.ImageItem()
@@ -492,6 +507,18 @@ class _ImagePane(QWidget):
         """Update chrome colours.  Image bg intentionally stays dark."""
         self._apply_header_style(theme)
 
+    def set_axis_range(self, x_min: float, x_max: float, y_min: float, y_max: float) -> None:
+        """Set the visible pixel axis range.
+
+        Parameters
+        ----------
+        x_min, x_max : float
+            Horizontal pixel range (left edge, right edge)
+        y_min, y_max : float
+            Vertical pixel range (top edge, bottom edge)
+        """
+        self.plot.setRange(xRange=(x_min, x_max), yRange=(y_min, y_max), padding=0)
+
     def set_image(self, frame: np.ndarray, frame_number: int) -> None:
         self.image_item.setImage(frame, autoLevels=False)
         if (
@@ -540,9 +567,10 @@ class BeamViewerWindow(QMainWindow):
     # Payload is a tuple (seq: int, bp: BeamParameters).
     _roi_analysis_ready = pyqtSignal(object)
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, fallback_shape: Optional[tuple] = None, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._theme: _Theme = DARK
+        self._fallback_shape = fallback_shape  # (height, width) for axis ranges
 
         self.setWindowTitle("Beam Profile Viewer")
         self.resize(1500, 920)
@@ -966,6 +994,9 @@ class BeamViewerWindow(QMainWindow):
 
         # full image
         self.image_pane_1.set_image(frame, fs.frame_number)
+        # Set axis ranges based on frame shape or fallback shape
+        h, w = frame.shape[:2]
+        self.image_pane_1.set_axis_range(0, w, 0, h)
 
         # full-image projections + fits
         if fs.analysis is not None:
@@ -1046,6 +1077,12 @@ class BeamViewerWindow(QMainWindow):
         roi_frame = self.image_pane_1.get_roi_slice(self._last_frame)
         if roi_frame is None or roi_frame.size == 0:
             return
+
+        # Set axis ranges for ROI based on current ROI coordinates
+        roi = self.image_pane_1.current_roi
+        if roi is not None:
+            x0, y0, x1, y1 = roi
+            self.image_pane_2.set_axis_range(x0, x1, y0, y1)
 
         self.image_pane_2.set_image(roi_frame, self._last_frame_number)
 

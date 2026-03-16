@@ -28,7 +28,7 @@ def main() -> None:
 
     # --- MVC wiring ---
     state = AppState()
-    window = BeamViewerWindow()
+    window = BeamViewerWindow(fallback_shape=state.fallback_shape)
     controller = BeamController(state, window)
 
     window.show()
