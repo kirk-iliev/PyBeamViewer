@@ -119,3 +119,28 @@ def get_roi_for_prefix(prefix: str) -> Optional[tuple]:
     if entry is None:
         return None
     return (entry["x0"], entry["y0"], entry["x1"], entry["y1"])
+
+
+# ---------------------------------------------------------------------------
+# Overlay settings persistence
+# ---------------------------------------------------------------------------
+
+def save_overlay_settings(settings: dict) -> None:
+    """Persist projection overlay settings to config.json."""
+    config_path = _get_config_path()
+    config = load_config()
+    config["overlay"] = settings
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
+
+
+def load_overlay_settings() -> dict:
+    """Load projection overlay settings from config.json, or return defaults."""
+    config = load_config()
+    return config.get("overlay", {
+        "h_enabled": False,
+        "h_side": "bottom",
+        "v_enabled": False,
+        "v_side": "left",
+        "scale": 0.25,
+    })

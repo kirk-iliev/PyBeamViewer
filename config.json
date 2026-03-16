@@ -38,5 +38,12 @@
     "levels_interval": 30,
     "colormap_name": "hot"
   },
-  "roi_selections": {}
+  "roi_selections": {},
+  "overlay": {
+    "h_enabled": false,
+    "h_side": "bottom",
+    "v_enabled": false,
+    "v_side": "left",
+    "scale": 0.25
+  }
 }

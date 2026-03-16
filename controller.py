@@ -33,6 +33,8 @@ from config import (
     get_pv_names,
     get_roi_for_prefix,
     save_roi_for_prefix,
+    load_overlay_settings,
+    save_overlay_settings,
 )
 from epics_layer import EpicsWorker, epics_get, epics_put
 from gui import BeamViewerWindow
@@ -91,6 +93,7 @@ class BeamController(QObject):
         self.gui.roi_changed.connect(self._on_roi_changed)
         self.gui.acquire_background_requested.connect(self._on_acquire_background_requested)
         self.gui.bg_subtraction_toggled.connect(self._on_bg_subtraction_toggled)
+        self.gui.overlay_settings_changed.connect(self._on_overlay_settings_changed)
 
         # --- thread-safe RBV update signals ---
         self._exposure_rbv_updated.connect(self.gui.set_exposure_rbv)
@@ -124,6 +127,10 @@ class BeamController(QObject):
         saved_roi = get_roi_for_prefix(self._active_prefix)
         if saved_roi is not None:
             self.gui.restore_roi(saved_roi)
+        # Restore projection overlay settings
+        from gui import OverlayState
+        overlay_dict = load_overlay_settings()
+        self.gui.restore_overlay_state(OverlayState.from_dict(overlay_dict))
 
     def stop(self) -> None:
         """Gracefully shut down both worker threads."""
@@ -350,3 +357,8 @@ class BeamController(QObject):
     def _on_roi_changed(self, roi: object) -> None:
         """Persist the ROI for the active camera whenever it changes."""
         save_roi_for_prefix(self._active_prefix, roi)  # type: ignore[arg-type]
+
+    @pyqtSlot(object)
+    def _on_overlay_settings_changed(self, state: object) -> None:
+        """Persist overlay settings whenever they change."""
+        save_overlay_settings(state.to_dict())  # type: ignore[union-attr]

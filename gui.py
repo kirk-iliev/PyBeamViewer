@@ -24,6 +24,7 @@ the network or analysis layers directly.
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -41,6 +42,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
+    QSlider,
     QSpinBox,
     QSplitter,
     QVBoxLayout,
@@ -49,6 +51,39 @@ from PyQt5.QtWidgets import (
 
 from analysis import analyze_frame
 from state import FrameState
+
+
+# ---------------------------------------------------------------------------
+# Projection overlay state
+# ---------------------------------------------------------------------------
+
+@dataclass
+class OverlayState:
+    """Settings for projection overlays drawn on top of the image."""
+    h_enabled: bool = False
+    h_side: str = "bottom"    # "bottom" | "top"
+    v_enabled: bool = False
+    v_side: str = "left"      # "left" | "right"
+    scale: float = 0.25       # 0.0 – 0.5, fraction of image dimension
+
+    def to_dict(self) -> dict:
+        return {
+            "h_enabled": self.h_enabled,
+            "h_side": self.h_side,
+            "v_enabled": self.v_enabled,
+            "v_side": self.v_side,
+            "scale": self.scale,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "OverlayState":
+        return cls(
+            h_enabled=d.get("h_enabled", False),
+            h_side=d.get("h_side", "bottom"),
+            v_enabled=d.get("v_enabled", False),
+            v_side=d.get("v_side", "left"),
+            scale=d.get("scale", 0.25),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -408,7 +443,130 @@ class _ImagePane(QWidget):
             # Capture viewport mouse events for drag-to-draw
             self.plot.viewport().installEventFilter(self)
 
+        # --- Projection overlay curves (hidden until enabled) ---
+        self._h_baseline = pg.PlotDataItem(pen=pg.mkPen(None))
+        self._h_overlay_curve = pg.PlotDataItem(
+            pen=pg.mkPen(QColor(theme.h_curve), width=1.4),
+        )
+        h_fill_color = QColor(theme.h_curve)
+        h_fill_color.setAlpha(50)
+        self._h_fill = pg.FillBetweenItem(
+            self._h_baseline, self._h_overlay_curve, brush=h_fill_color,
+        )
+        self.plot.addItem(self._h_baseline)
+        self.plot.addItem(self._h_overlay_curve)
+        self.plot.addItem(self._h_fill)
+        self._h_baseline.hide()
+        self._h_overlay_curve.hide()
+        self._h_fill.hide()
+
+        self._v_baseline = pg.PlotDataItem(pen=pg.mkPen(None))
+        self._v_overlay_curve = pg.PlotDataItem(
+            pen=pg.mkPen(QColor(theme.v_curve), width=1.4),
+        )
+        v_fill_color = QColor(theme.v_curve)
+        v_fill_color.setAlpha(50)
+        self._v_fill = pg.FillBetweenItem(
+            self._v_baseline, self._v_overlay_curve, brush=v_fill_color,
+        )
+        self.plot.addItem(self._v_baseline)
+        self.plot.addItem(self._v_overlay_curve)
+        self.plot.addItem(self._v_fill)
+        self._v_baseline.hide()
+        self._v_overlay_curve.hide()
+        self._v_fill.hide()
+
         self._apply_header_style(theme)
+
+    # ------------------------------------------------------------------
+    # Projection overlay API
+    # ------------------------------------------------------------------
+
+    def update_projections(
+        self,
+        x_proj: Optional[np.ndarray],
+        y_proj: Optional[np.ndarray],
+        img_shape: tuple,
+        state: OverlayState,
+    ) -> None:
+        """Render projection overlays on the image according to *state*.
+
+        Parameters
+        ----------
+        x_proj : 1-D array (length = image width), or None
+        y_proj : 1-D array (length = image height), or None
+        img_shape : (height, width)
+        state : current OverlayState
+        """
+        H, W = img_shape[:2]
+
+        # --- horizontal overlay ---
+        if state.h_enabled and x_proj is not None and len(x_proj) > 0:
+            x_coords = np.arange(len(x_proj), dtype=np.float64)
+            pmax = float(np.max(x_proj))
+            norm = x_proj / pmax if pmax > 0 else np.zeros_like(x_proj)
+            amp_px = state.scale * H
+
+            if state.h_side == "bottom":
+                baseline_y = np.full_like(x_coords, float(H))
+                curve_y = H - norm * amp_px
+            else:  # top
+                baseline_y = np.zeros_like(x_coords)
+                curve_y = norm * amp_px
+
+            self._h_baseline.setData(x_coords, baseline_y)
+            self._h_overlay_curve.setData(x_coords, curve_y)
+            self._h_baseline.show()
+            self._h_overlay_curve.show()
+            self._h_fill.show()
+        else:
+            self._h_baseline.hide()
+            self._h_overlay_curve.hide()
+            self._h_fill.hide()
+
+        # --- vertical overlay ---
+        if state.v_enabled and y_proj is not None and len(y_proj) > 0:
+            y_coords = np.arange(len(y_proj), dtype=np.float64)
+            pmax = float(np.max(y_proj))
+            norm = y_proj / pmax if pmax > 0 else np.zeros_like(y_proj)
+            amp_px = state.scale * W
+
+            if state.v_side == "left":
+                baseline_x = np.zeros_like(y_coords)
+                curve_x = norm * amp_px
+            else:  # right
+                baseline_x = np.full_like(y_coords, float(W))
+                curve_x = W - norm * amp_px
+
+            self._v_baseline.setData(baseline_x, y_coords)
+            self._v_overlay_curve.setData(curve_x, y_coords)
+            self._v_baseline.show()
+            self._v_overlay_curve.show()
+            self._v_fill.show()
+        else:
+            self._v_baseline.hide()
+            self._v_overlay_curve.hide()
+            self._v_fill.hide()
+
+    def clear_projections(self) -> None:
+        """Hide all projection overlays."""
+        for item in (
+            self._h_baseline, self._h_overlay_curve, self._h_fill,
+            self._v_baseline, self._v_overlay_curve, self._v_fill,
+        ):
+            item.hide()
+
+    def apply_overlay_theme(self, theme: _Theme) -> None:
+        """Update overlay curve and fill colours to match *theme*."""
+        self._h_overlay_curve.setPen(pg.mkPen(QColor(theme.h_curve), width=1.4))
+        h_fill = QColor(theme.h_curve)
+        h_fill.setAlpha(50)
+        self._h_fill.setBrush(h_fill)
+
+        self._v_overlay_curve.setPen(pg.mkPen(QColor(theme.v_curve), width=1.4))
+        v_fill = QColor(theme.v_curve)
+        v_fill.setAlpha(50)
+        self._v_fill.setBrush(v_fill)
 
     # ------------------------------------------------------------------
     # Mouse event filter — ROI drawing
@@ -532,6 +690,7 @@ class _ImagePane(QWidget):
     def apply_theme(self, theme: _Theme) -> None:
         """Update chrome colours.  Image bg intentionally stays dark."""
         self._apply_header_style(theme)
+        self.apply_overlay_theme(theme)
 
     def set_axis_range(self, x_min: float, x_max: float, y_min: float, y_max: float) -> None:
         """Set the visible pixel axis range.
@@ -591,6 +750,7 @@ class BeamViewerWindow(QMainWindow):
     center_roi_requested = pyqtSignal()
     acquire_background_requested = pyqtSignal()
     bg_subtraction_toggled = pyqtSignal(bool)
+    overlay_settings_changed = pyqtSignal(object)  # OverlayState
     # Emitted from a background thread when ROI fitting completes.
     # Payload is a tuple (seq: int, bp: BeamParameters).
     _roi_analysis_ready = pyqtSignal(object)
@@ -599,6 +759,7 @@ class BeamViewerWindow(QMainWindow):
         super().__init__(parent)
         self._theme: _Theme = DARK
         self._fallback_shape = fallback_shape  # (height, width) for axis ranges
+        self._overlay_state = OverlayState()
 
         self.setWindowTitle("Beam Profile Viewer")
         self.resize(1500, 920)
@@ -629,6 +790,9 @@ class BeamViewerWindow(QMainWindow):
 
         self._last_frame: Optional[np.ndarray] = None
         self._last_frame_number: int = 0
+        # Frame rate tracking
+        self._start_time: Optional[float] = None
+        self._last_frame_time: Optional[float] = None
         # Sequence counter used to discard stale ROI fit results.
         self._roi_seq: int = 0
         # Prevent more than one ROI fit thread from running at a time.
@@ -811,6 +975,10 @@ class BeamViewerWindow(QMainWindow):
         self.stream_btn.setCheckable(True)
         self.stream_btn.setChecked(True)
         self.stream_btn.setMinimumHeight(32)
+        # Apply initial streaming style (green)
+        self.stream_btn.setStyleSheet(
+            "QPushButton { background-color: #2ecc71; color: #ffffff; font-weight: 600; }"
+        )
         acq_lay.addWidget(self.stream_btn)
 
         self.acquire_bg_btn = QPushButton("Acquire Background")
@@ -883,6 +1051,55 @@ class BeamViewerWindow(QMainWindow):
 
         lay.addWidget(img_grp)
 
+        # ── Projection Overlays ───────────────────────────────────
+        overlay_grp = QGroupBox("Projection Overlays")
+        overlay_lay = QGridLayout(overlay_grp)
+        overlay_lay.setContentsMargins(8, 12, 8, 8)
+        overlay_lay.setSpacing(6)
+        overlay_lay.setColumnStretch(1, 1)
+
+        # H overlay toggle + side selector
+        self.h_overlay_btn = QPushButton("H Overlay")
+        self.h_overlay_btn.setCheckable(True)
+        self.h_overlay_btn.setChecked(False)
+        self.h_overlay_btn.setMinimumHeight(28)
+        overlay_lay.addWidget(self.h_overlay_btn, 0, 0)
+
+        self.h_overlay_side = QComboBox()
+        self.h_overlay_side.addItems(["Bottom", "Top"])
+        self.h_overlay_side.setCurrentIndex(0)
+        self.h_overlay_side.setEnabled(False)
+        overlay_lay.addWidget(self.h_overlay_side, 0, 1)
+
+        # V overlay toggle + side selector
+        self.v_overlay_btn = QPushButton("V Overlay")
+        self.v_overlay_btn.setCheckable(True)
+        self.v_overlay_btn.setChecked(False)
+        self.v_overlay_btn.setMinimumHeight(28)
+        overlay_lay.addWidget(self.v_overlay_btn, 1, 0)
+
+        self.v_overlay_side = QComboBox()
+        self.v_overlay_side.addItems(["Left", "Right"])
+        self.v_overlay_side.setCurrentIndex(0)
+        self.v_overlay_side.setEnabled(False)
+        overlay_lay.addWidget(self.v_overlay_side, 1, 1)
+
+        # Scale slider
+        overlay_lay.addWidget(QLabel("Scale:"), 2, 0)
+        scale_row = QHBoxLayout()
+        self.overlay_scale_slider = QSlider(Qt.Horizontal)
+        self.overlay_scale_slider.setRange(5, 50)   # 5% – 50%
+        self.overlay_scale_slider.setValue(25)
+        self.overlay_scale_slider.setTickInterval(5)
+        self.overlay_scale_label = QLabel("25%")
+        scale_row.addWidget(self.overlay_scale_slider, stretch=1)
+        scale_row.addWidget(self.overlay_scale_label)
+        scale_container = QWidget()
+        scale_container.setLayout(scale_row)
+        overlay_lay.addWidget(scale_container, 2, 1)
+
+        lay.addWidget(overlay_grp)
+
         lay.addStretch()
 
         # ── Internal signal wiring ────────────────────────────────
@@ -912,6 +1129,17 @@ class BeamViewerWindow(QMainWindow):
         self.acquire_bg_btn.clicked.connect(self.acquire_background_requested.emit)
         self.bg_subtract_btn.toggled.connect(self._on_bg_subtraction_toggled)
 
+        # Overlay controls
+        self.h_overlay_btn.toggled.connect(self._on_overlay_changed)
+        self.h_overlay_side.currentTextChanged.connect(
+            lambda _: self._on_overlay_changed(),
+        )
+        self.v_overlay_btn.toggled.connect(self._on_overlay_changed)
+        self.v_overlay_side.currentTextChanged.connect(
+            lambda _: self._on_overlay_changed(),
+        )
+        self.overlay_scale_slider.valueChanged.connect(self._on_overlay_scale_changed)
+
         return panel
 
     def _on_stream_toggled(self, checked: bool) -> None:
@@ -938,6 +1166,51 @@ class BeamViewerWindow(QMainWindow):
         # Refresh the status label text to reflect the new state
         has_bg = self.bg_status_label.property("has_bg") or False
         self._update_bg_status_label(has_bg, checked)
+
+    def _on_overlay_changed(self, _checked: bool = False) -> None:
+        """Read the overlay controls, update state, refresh overlays, and emit."""
+        h_on = self.h_overlay_btn.isChecked()
+        v_on = self.v_overlay_btn.isChecked()
+        self.h_overlay_btn.setText("✓  H Overlay" if h_on else "H Overlay")
+        self.v_overlay_btn.setText("✓  V Overlay" if v_on else "V Overlay")
+        self.h_overlay_side.setEnabled(h_on)
+        self.v_overlay_side.setEnabled(v_on)
+
+        self._overlay_state.h_enabled = h_on
+        self._overlay_state.h_side = self.h_overlay_side.currentText().lower()
+        self._overlay_state.v_enabled = v_on
+        self._overlay_state.v_side = self.v_overlay_side.currentText().lower()
+
+        self._refresh_overlays()
+        self.overlay_settings_changed.emit(self._overlay_state)
+
+    def _on_overlay_scale_changed(self, value: int) -> None:
+        """Update overlay scale from the slider (5–50 → 0.05–0.50)."""
+        self._overlay_state.scale = value / 100.0
+        self.overlay_scale_label.setText(f"{value}%")
+        self._refresh_overlays()
+        self.overlay_settings_changed.emit(self._overlay_state)
+
+    def _refresh_overlays(self) -> None:
+        """Recompute and redraw projection overlays on both image panes."""
+        if self._last_frame is None:
+            return
+        frame = self._last_frame
+        h, w = frame.shape[:2]
+        x_proj = np.mean(frame, axis=0)
+        y_proj = np.mean(frame, axis=1)
+        self.image_pane_1.update_projections(x_proj, y_proj, (h, w), self._overlay_state)
+
+        # ROI pane
+        roi_frame = self.image_pane_1.get_roi_slice(frame)
+        if roi_frame is not None and roi_frame.size > 0:
+            roi_x = np.mean(roi_frame, axis=0)
+            roi_y = np.mean(roi_frame, axis=1)
+            self.image_pane_2.update_projections(
+                roi_x, roi_y, roi_frame.shape[:2], self._overlay_state,
+            )
+        else:
+            self.image_pane_2.clear_projections()
 
     def _on_fit_full_toggled(self, checked: bool) -> None:
         self.fit_full_btn.setText(
@@ -1106,7 +1379,21 @@ class BeamViewerWindow(QMainWindow):
         frame = fs.frame
         self._last_frame = frame
         self._last_frame_number = fs.frame_number
-        self.frame_label.setText(f"Frame: {fs.frame_number}")
+
+        # Calculate frame rate
+        current_time = time.time()
+        if self._start_time is None:
+            self._start_time = current_time
+            self._last_frame_time = current_time
+            fps = 0.0
+        else:
+            elapsed = current_time - self._start_time
+            if elapsed > 0:
+                fps = fs.frame_number / elapsed
+            else:
+                fps = 0.0
+
+        self.frame_label.setText(f"Frame: {fs.frame_number} | {fps:.1f} Hz")
 
         # full image
         self.image_pane_1.set_image(frame, fs.frame_number)
@@ -1139,6 +1426,14 @@ class BeamViewerWindow(QMainWindow):
             self.v_proj_1.set_projection(np.mean(frame, axis=1))
             self.h_proj_1.clear_fit()
             self.v_proj_1.clear_fit()
+
+        # full-image projection overlays
+        x_proj = np.mean(frame, axis=0)
+        y_proj = np.mean(frame, axis=1)
+        if fs.analysis is not None:
+            x_proj = fs.analysis.x_projection
+            y_proj = fs.analysis.y_projection
+        self.image_pane_1.update_projections(x_proj, y_proj, (h, w), self._overlay_state)
 
         # ROI pane
         self._update_roi()
@@ -1180,6 +1475,45 @@ class BeamViewerWindow(QMainWindow):
         """Return the active ROI as ``(x0, y0, x1, y1)`` or None."""
         return self.image_pane_1.current_roi
 
+    # ------------------------------------------------------------------
+    # Overlay state public API
+    # ------------------------------------------------------------------
+
+    @property
+    def overlay_state(self) -> OverlayState:
+        """Return the current projection overlay settings."""
+        return self._overlay_state
+
+    def restore_overlay_state(self, state: OverlayState) -> None:
+        """Silently restore overlay settings without emitting signals."""
+        self._overlay_state = state
+        # Update controls to match — block signals to avoid re-emission
+        self.h_overlay_btn.blockSignals(True)
+        self.h_overlay_btn.setChecked(state.h_enabled)
+        self.h_overlay_btn.setText("✓  H Overlay" if state.h_enabled else "H Overlay")
+        self.h_overlay_btn.blockSignals(False)
+
+        self.h_overlay_side.blockSignals(True)
+        self.h_overlay_side.setCurrentText(state.h_side.capitalize())
+        self.h_overlay_side.setEnabled(state.h_enabled)
+        self.h_overlay_side.blockSignals(False)
+
+        self.v_overlay_btn.blockSignals(True)
+        self.v_overlay_btn.setChecked(state.v_enabled)
+        self.v_overlay_btn.setText("✓  V Overlay" if state.v_enabled else "V Overlay")
+        self.v_overlay_btn.blockSignals(False)
+
+        self.v_overlay_side.blockSignals(True)
+        self.v_overlay_side.setCurrentText(state.v_side.capitalize())
+        self.v_overlay_side.setEnabled(state.v_enabled)
+        self.v_overlay_side.blockSignals(False)
+
+        slider_val = max(5, min(50, int(state.scale * 100)))
+        self.overlay_scale_slider.blockSignals(True)
+        self.overlay_scale_slider.setValue(slider_val)
+        self.overlay_scale_slider.blockSignals(False)
+        self.overlay_scale_label.setText(f"{slider_val}%")
+
     def _update_roi(self) -> None:
         """Extract the ROI from the cached frame and refresh the bottom pane.
 
@@ -1210,6 +1544,12 @@ class BeamViewerWindow(QMainWindow):
         bp_no_fit = analyze_frame(roi_frame, do_fit=False)
         self.h_proj_2.set_projection(bp_no_fit.x_projection)
         self.v_proj_2.set_projection(bp_no_fit.y_projection)
+
+        # ROI projection overlays
+        self.image_pane_2.update_projections(
+            bp_no_fit.x_projection, bp_no_fit.y_projection,
+            roi_frame.shape[:2], self._overlay_state,
+        )
 
         if not self.fit_roi_btn.isChecked():
             # Fitting is off — clear stats immediately and stop here.
