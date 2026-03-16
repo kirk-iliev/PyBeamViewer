@@ -221,6 +221,11 @@ class _ProjectionPlot(QWidget):
             pen=pg.mkPen(theme.fit_curve, width=1.6, style=Qt.DashLine),
         )
 
+        # Y-axis range smoothing — expand instantly, shrink slowly.
+        self._smooth_y_min: Optional[float] = None
+        self._smooth_y_max: Optional[float] = None
+        self._DECAY = 0.12  # fraction to move toward actual range per frame
+
         self._apply_theme_internals(theme)
 
     # helpers
@@ -264,17 +269,38 @@ class _ProjectionPlot(QWidget):
     def set_projection(self, data: np.ndarray) -> None:
         self.curve.setData(data)
 
-        # Set axis limits with padding to prevent constant readjustment
         if len(data) > 0:
-            y_min, y_max = np.min(data), np.max(data)
-            y_range = y_max - y_min
-            # Add 10% padding on both sides
-            padding = max(y_range * 0.1, 1e-6)  # Small epsilon to avoid degenerate cases
-            self.pw.setYRange(y_min - padding, y_max + padding, padding=0)
+            y_min = float(np.min(data))
+            y_max = float(np.max(data))
 
-            # X-axis: full range of data indices with padding
+            # --- smoothed y-range: expand instantly, shrink slowly ---
+            if self._smooth_y_min is None or self._smooth_y_max is None:
+                # First frame — seed directly.
+                self._smooth_y_min = y_min
+                self._smooth_y_max = y_max
+            else:
+                # Expand immediately so data is never clipped.
+                if y_min < self._smooth_y_min:
+                    self._smooth_y_min = y_min
+                else:
+                    self._smooth_y_min += self._DECAY * (y_min - self._smooth_y_min)
+
+                if y_max > self._smooth_y_max:
+                    self._smooth_y_max = y_max
+                else:
+                    self._smooth_y_max += self._DECAY * (y_max - self._smooth_y_max)
+
+            y_range = self._smooth_y_max - self._smooth_y_min
+            padding = max(y_range * 0.10, 1e-6)
+            self.pw.setYRange(
+                self._smooth_y_min - padding,
+                self._smooth_y_max + padding,
+                padding=0,
+            )
+
+            # X-axis: full range of data indices
             x_max = len(data) - 1
-            x_padding = max(x_max * 0.05, 1)  # 5% padding for x-axis
+            x_padding = max(x_max * 0.02, 1)
             self.pw.setXRange(-x_padding, x_max + x_padding, padding=0)
 
     def set_fit(
@@ -1079,10 +1105,13 @@ class BeamViewerWindow(QMainWindow):
             return
 
         # Set axis ranges for ROI based on current ROI coordinates
+        # and position the cropped sub-image at its full-image offset so
+        # that it aligns with the pixel-coordinate axes.
         roi = self.image_pane_1.current_roi
         if roi is not None:
             x0, y0, x1, y1 = roi
             self.image_pane_2.set_axis_range(x0, x1, y0, y1)
+            self.image_pane_2.image_item.setPos(x0, y0)
 
         self.image_pane_2.set_image(roi_frame, self._last_frame_number)
 
