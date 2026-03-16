@@ -1,5 +1,5 @@
-PyQt5>=5.15.0
-pyqtgraph==0.13.3
-numpy==1.26.4
-caproto==0.9.3
-scipy==1.13.0
+PyQt5
+pyqtgraph
+numpy
+caproto
+scipy

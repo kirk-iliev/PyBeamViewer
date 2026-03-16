@@ -535,6 +535,7 @@ class BeamViewerWindow(QMainWindow):
     colormap_changed = pyqtSignal(str)
     fit_full_toggled = pyqtSignal(bool)
     roi_changed = pyqtSignal(object)  # (x0, y0, x1, y1) tuple or None when cleared
+    center_roi_requested = pyqtSignal()
     # Emitted from a background thread when ROI fitting completes.
     # Payload is a tuple (seq: int, bp: BeamParameters).
     _roi_analysis_ready = pyqtSignal(object)
@@ -776,6 +777,14 @@ class BeamViewerWindow(QMainWindow):
         self.clear_roi_btn.setToolTip("Remove the current ROI selection")
         analysis_lay.addWidget(self.clear_roi_btn)
 
+        self.center_roi_btn = QPushButton("⊕  Center ROI")
+        self.center_roi_btn.setMinimumHeight(28)
+        self.center_roi_btn.setToolTip(
+            "Re-center the ROI as a square around the intensity centroid"
+        )
+        self.center_roi_btn.setEnabled(False)
+        analysis_lay.addWidget(self.center_roi_btn)
+
         lay.addWidget(analysis_grp)
 
         # ── Image Settings ────────────────────────────────────────
@@ -815,6 +824,7 @@ class BeamViewerWindow(QMainWindow):
         self.fit_full_btn.toggled.connect(self._on_fit_full_toggled)
         self.fit_roi_btn.toggled.connect(self._on_fit_roi_toggled)
         self.clear_roi_btn.clicked.connect(self._on_clear_roi_clicked)
+        self.center_roi_btn.clicked.connect(self._on_center_roi_clicked)
         self.colormap_combo.currentTextChanged.connect(
             self.colormap_changed.emit,
         )
@@ -843,6 +853,43 @@ class BeamViewerWindow(QMainWindow):
 
     def _on_clear_roi_clicked(self) -> None:
         self.image_pane_1.clear_roi()
+
+    def _on_center_roi_clicked(self) -> None:
+        """Re-center the ROI as a square around the intensity-weighted centroid."""
+        if self._last_frame is None:
+            return
+        roi = self.image_pane_1.current_roi
+        if roi is None:
+            return
+        x0, y0, x1, y1 = roi
+        # Clamp to frame bounds
+        fh, fw = self._last_frame.shape[:2]
+        x0c = max(0, x0);  y0c = max(0, y0)
+        x1c = min(fw, x1); y1c = min(fh, y1)
+        if x1c <= x0c or y1c <= y0c:
+            return
+
+        patch = self._last_frame[y0c:y1c, x0c:x1c].astype(np.float64)
+        total = patch.sum()
+        if total <= 0:
+            return
+
+        # Intensity-weighted centroid in full-image coordinates
+        col_idx = np.arange(x0c, x1c, dtype=np.float64)
+        row_idx = np.arange(y0c, y1c, dtype=np.float64)
+        cx = int(round(np.dot(patch.sum(axis=0), col_idx) / total))
+        cy = int(round(np.dot(patch.sum(axis=1), row_idx) / total))
+
+        # Square half-side = larger of the two current half-dimensions
+        half = max(x1c - x0c, y1c - y0c) // 2
+
+        # New ROI clamped to image bounds
+        nx0 = max(0,  cx - half)
+        ny0 = max(0,  cy - half)
+        nx1 = min(fw, cx + half)
+        ny1 = min(fh, cy + half)
+
+        self.image_pane_1.set_roi((nx0, ny0, nx1, ny1))
 
     # ------------------------------------------------------------------
     # Control panel public API
@@ -963,6 +1010,7 @@ class BeamViewerWindow(QMainWindow):
     def _on_roi_changed(self, roi: object) -> None:
         """Called when the user draws a new ROI or clears the existing one."""
         self._set_roi_section_visible(roi is not None)
+        self.center_roi_btn.setEnabled(roi is not None)
         if roi is not None:
             self._update_roi()
             # Clear stale projections from a previous ROI when a new one is drawn
@@ -977,6 +1025,7 @@ class BeamViewerWindow(QMainWindow):
         self.image_pane_1.set_roi(roi)
         self.image_pane_1.blockSignals(False)
         self._set_roi_section_visible(roi is not None)
+        self.center_roi_btn.setEnabled(roi is not None)
         if roi is not None and self._last_frame is not None:
             self._update_roi()
 
