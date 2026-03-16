@@ -1120,11 +1120,16 @@ class BeamViewerWindow(QMainWindow):
         bp_no_fit = analyze_frame(roi_frame, do_fit=False)
         self.h_proj_2.set_projection(bp_no_fit.x_projection)
         self.v_proj_2.set_projection(bp_no_fit.y_projection)
-        self.h_proj_2.clear_fit()
-        self.v_proj_2.clear_fit()
 
         if not self.fit_roi_btn.isChecked():
+            # Fitting is off — clear stats immediately and stop here.
+            self.h_proj_2.clear_fit()
+            self.v_proj_2.clear_fit()
             return
+        # Fitting is on — leave the previous fit stats visible while the new
+        # fit is being computed in the background (avoids the flash-to-dashes
+        # on every tick).  Stats will be replaced when _on_roi_analysis_ready
+        # fires, mirroring how the full-image projections behave.
 
         # --- off-thread Gaussian fit ---
         # Bump the sequence so any in-flight result from a previous call is
