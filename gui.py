@@ -41,7 +41,6 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
-    QMenu,
     QPushButton,
     QSlider,
     QSpinBox,
@@ -66,6 +65,8 @@ class OverlayState:
     v_enabled: bool = False
     v_side: str = "left"      # "left" | "right"
     scale: float = 0.25       # 0.0 – 0.5, fraction of image dimension
+    show_full: bool = True    # show overlays on the full-image pane
+    show_roi: bool = True     # show overlays on the ROI pane
 
     def to_dict(self) -> dict:
         return {
@@ -74,6 +75,8 @@ class OverlayState:
             "v_enabled": self.v_enabled,
             "v_side": self.v_side,
             "scale": self.scale,
+            "show_full": self.show_full,
+            "show_roi": self.show_roi,
         }
 
     @classmethod
@@ -84,6 +87,8 @@ class OverlayState:
             v_enabled=d.get("v_enabled", False),
             v_side=d.get("v_side", "left"),
             scale=d.get("scale", 0.25),
+            show_full=d.get("show_full", True),
+            show_roi=d.get("show_roi", True),
         )
 
 
@@ -374,24 +379,16 @@ class _ImagePane(QWidget):
 
     # Emits (x0, y0, x1, y1) when drawn, or None when cleared.
     roi_changed = pyqtSignal(object)
-    # Emitted when overlay toggle is clicked: (pane_id, enabled)
-    pane_overlay_toggled = pyqtSignal(str, bool)
-    # Emitted when side override is requested: (pane_id, side_or_none)
-    pane_overlay_side_override = pyqtSignal(str, object)
 
     def __init__(
         self,
-        pane_id: str,
         label_text: str,
         theme: _Theme,
         enable_roi: bool = False,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
-        self._pane_id = pane_id  # "full" or "roi"
         self._enable_roi = enable_roi
-        self._overlay_enabled = True  # Per-pane toggle state
-        self._side_override: Optional[str] = None  # "bottom", "top", "left", "right", or None (use global)
 
         # Click-drag state
         self._drawing: bool = False
@@ -402,29 +399,10 @@ class _ImagePane(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        # header row: label + overlay toggle button
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(4, 4, 4, 4)
-        header_layout.setSpacing(4)
+        # header
         self.header = QLabel(label_text)
         self.header.setAlignment(Qt.AlignCenter)
-        header_layout.addWidget(self.header, stretch=1)
-
-        # Overlay toggle button (small checkable button with icon/text)
-        self.overlay_toggle_btn = QPushButton("◊")  # small overlay icon
-        self.overlay_toggle_btn.setCheckable(True)
-        self.overlay_toggle_btn.setChecked(True)
-        self.overlay_toggle_btn.setMaximumWidth(28)
-        self.overlay_toggle_btn.setMaximumHeight(22)
-        self.overlay_toggle_btn.setToolTip("Toggle projections. Right-click to flip side.")
-        self.overlay_toggle_btn.clicked.connect(self._on_overlay_toggle)
-        self.overlay_toggle_btn.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.overlay_toggle_btn.customContextMenuRequested.connect(self._on_overlay_context_menu)
-        header_layout.addWidget(self.overlay_toggle_btn)
-
-        header_widget = QWidget()
-        header_widget.setLayout(header_layout)
-        lay.addWidget(header_widget)
+        lay.addWidget(self.header)
 
         # image view — background stays dark regardless of theme for visibility
         self.plot = pg.PlotWidget()
@@ -515,34 +493,38 @@ class _ImagePane(QWidget):
         x_proj: Optional[np.ndarray],
         y_proj: Optional[np.ndarray],
         img_shape: tuple,
-        h_state: OverlayState,
-        v_state: OverlayState,
+        state: OverlayState,
+        x_offset: float = 0.0,
+        y_offset: float = 0.0,
     ) -> None:
-        """Render projection overlays on the image according to *h_state* and *v_state*.
+        """Render projection overlays on the image according to *state*.
 
         Parameters
         ----------
         x_proj : 1-D array (length = image width), or None
         y_proj : 1-D array (length = image height), or None
         img_shape : (height, width)
-        h_state : OverlayState for horizontal projection
-        v_state : OverlayState for vertical projection
+        state : current OverlayState
+        x_offset, y_offset : origin of the image in view/data coordinates.
+            Must be non-zero for sub-regions (e.g. the ROI pane) whose
+            ``image_item`` has been positioned at the ROI origin so that
+            pixel axes show full-image coordinates.
         """
         H, W = img_shape[:2]
 
         # --- horizontal overlay ---
-        if h_state.h_enabled and x_proj is not None and len(x_proj) > 0:
-            x_coords = np.arange(len(x_proj), dtype=np.float64)
+        if state.h_enabled and x_proj is not None and len(x_proj) > 0:
+            x_coords = np.arange(len(x_proj), dtype=np.float64) + x_offset
             pmax = float(np.max(x_proj))
             norm = x_proj / pmax if pmax > 0 else np.zeros_like(x_proj)
-            amp_px = h_state.scale * H
+            amp_px = state.scale * H
 
-            if h_state.h_side == "bottom":
-                baseline_y = np.full_like(x_coords, float(H))
-                curve_y = H - norm * amp_px
+            if state.h_side == "bottom":
+                baseline_y = np.full_like(x_coords, float(H) + y_offset)
+                curve_y = H - norm * amp_px + y_offset
             else:  # top
-                baseline_y = np.zeros_like(x_coords)
-                curve_y = norm * amp_px
+                baseline_y = np.full_like(x_coords, y_offset)
+                curve_y = norm * amp_px + y_offset
 
             self._h_baseline.setData(x_coords, baseline_y)
             self._h_overlay_curve.setData(x_coords, curve_y)
@@ -555,18 +537,18 @@ class _ImagePane(QWidget):
             self._h_fill.hide()
 
         # --- vertical overlay ---
-        if v_state.v_enabled and y_proj is not None and len(y_proj) > 0:
-            y_coords = np.arange(len(y_proj), dtype=np.float64)
+        if state.v_enabled and y_proj is not None and len(y_proj) > 0:
+            y_coords = np.arange(len(y_proj), dtype=np.float64) + y_offset
             pmax = float(np.max(y_proj))
             norm = y_proj / pmax if pmax > 0 else np.zeros_like(y_proj)
-            amp_px = v_state.scale * W
+            amp_px = state.scale * W
 
-            if v_state.v_side == "left":
-                baseline_x = np.zeros_like(y_coords)
-                curve_x = norm * amp_px
+            if state.v_side == "left":
+                baseline_x = np.full_like(y_coords, x_offset)
+                curve_x = norm * amp_px + x_offset
             else:  # right
-                baseline_x = np.full_like(y_coords, float(W))
-                curve_x = W - norm * amp_px
+                baseline_x = np.full_like(y_coords, float(W) + x_offset)
+                curve_x = W - norm * amp_px + x_offset
 
             self._v_baseline.setData(baseline_x, y_coords)
             self._v_overlay_curve.setData(curve_x, y_coords)
@@ -597,53 +579,6 @@ class _ImagePane(QWidget):
         v_fill = QColor(theme.v_curve)
         v_fill.setAlpha(50)
         self._v_fill.setBrush(v_fill)
-
-    # ------------------------------------------------------------------
-    # Per-pane overlay controls
-    # ------------------------------------------------------------------
-
-    def _on_overlay_toggle(self) -> None:
-        """Handle overlay enable/disable toggle for this pane."""
-        self._overlay_enabled = self.overlay_toggle_btn.isChecked()
-        self.pane_overlay_toggled.emit(self._pane_id, self._overlay_enabled)
-
-    def _on_overlay_context_menu(self, pos) -> None:
-        """Show context menu to flip overlay side for this pane."""
-        # Determine if this is an H or V pane based on position in parent
-        # For now, use a simple heuristic: build a menu with flip option
-        menu = QMenu(self)
-        flip_action = menu.addAction("Flip side (override)")
-        clear_override_action = menu.addAction("Use global side")
-        menu.addSeparator()
-        disable_action = menu.addAction("Turn off overlays")
-
-        action = menu.exec_(self.overlay_toggle_btn.mapToGlobal(pos))
-        if action == flip_action:
-            # Flip: if override is set, clear it; else set it to opposite
-            if self._side_override is not None:
-                self._side_override = None
-            else:
-                # Guess: if pane contains H, flip to opposite H side; same for V
-                # For simplicity, emit a None to clear, and emit the flip request separately
-                # Actually, just toggle the current override
-                self._side_override = "flipped"  # sentinel; will be resolved in BeamViewerWindow
-            self.pane_overlay_side_override.emit(self._pane_id, self._side_override)
-        elif action == clear_override_action:
-            self._side_override = None
-            self.pane_overlay_side_override.emit(self._pane_id, self._side_override)
-        elif action == disable_action:
-            self.overlay_toggle_btn.setChecked(False)
-            self._on_overlay_toggle()
-
-    @property
-    def overlay_enabled(self) -> bool:
-        """Return whether overlays are enabled for this pane."""
-        return self._overlay_enabled
-
-    @property
-    def side_override(self) -> Optional[str]:
-        """Return the side override for this pane (None = use global)."""
-        return self._side_override
 
     # ------------------------------------------------------------------
     # Mouse event filter — ROI drawing
@@ -862,14 +797,11 @@ class BeamViewerWindow(QMainWindow):
         img_lay.setContentsMargins(0, 0, 0, 0)
         img_lay.setSpacing(4)
 
-        self.image_pane_1 = _ImagePane("full", "Full Image", self._theme, enable_roi=True)
-        self.image_pane_2 = _ImagePane("roi", "ROI", self._theme)
+        self.image_pane_1 = _ImagePane("Full Image", self._theme, enable_roi=True)
+        self.image_pane_2 = _ImagePane("ROI", self._theme)
 
         self._last_frame: Optional[np.ndarray] = None
         self._last_frame_number: int = 0
-        # Per-pane overlay state tracking
-        self._pane_overlay_enabled = {"full": True, "roi": True}
-        self._pane_side_override = {"full": None, "roi": None}  # None = use global
         # Frame rate tracking
         self._start_time: Optional[float] = None
         self._last_frame_time: Optional[float] = None
@@ -883,12 +815,6 @@ class BeamViewerWindow(QMainWindow):
 
         # ROI selection: _on_roi_changed handles visibility + persistence
         self.image_pane_1.roi_changed.connect(self._on_roi_changed)
-
-        # Per-pane overlay controls
-        self.image_pane_1.pane_overlay_toggled.connect(self._on_pane_overlay_toggled)
-        self.image_pane_1.pane_overlay_side_override.connect(self._on_pane_overlay_side_override)
-        self.image_pane_2.pane_overlay_toggled.connect(self._on_pane_overlay_toggled)
-        self.image_pane_2.pane_overlay_side_override.connect(self._on_pane_overlay_side_override)
 
         img_lay.addWidget(self.image_pane_1, stretch=1)
         img_lay.addWidget(self.image_pane_2, stretch=1)
@@ -1184,6 +1110,24 @@ class BeamViewerWindow(QMainWindow):
         scale_container.setLayout(scale_row)
         overlay_lay.addWidget(scale_container, 2, 1)
 
+        # Show-on scope: which panes receive the overlays
+        overlay_lay.addWidget(QLabel("Show on:"), 3, 0)
+        scope_row = QHBoxLayout()
+        scope_row.setSpacing(6)
+        self.overlay_show_full_btn = QPushButton("✓  Full")
+        self.overlay_show_full_btn.setCheckable(True)
+        self.overlay_show_full_btn.setChecked(True)
+        self.overlay_show_full_btn.setMinimumHeight(26)
+        scope_row.addWidget(self.overlay_show_full_btn)
+        self.overlay_show_roi_btn = QPushButton("✓  ROI")
+        self.overlay_show_roi_btn.setCheckable(True)
+        self.overlay_show_roi_btn.setChecked(True)
+        self.overlay_show_roi_btn.setMinimumHeight(26)
+        scope_row.addWidget(self.overlay_show_roi_btn)
+        scope_container = QWidget()
+        scope_container.setLayout(scope_row)
+        overlay_lay.addWidget(scope_container, 3, 1)
+
         lay.addWidget(overlay_grp)
 
         lay.addStretch()
@@ -1225,6 +1169,8 @@ class BeamViewerWindow(QMainWindow):
             lambda _: self._on_overlay_changed(),
         )
         self.overlay_scale_slider.valueChanged.connect(self._on_overlay_scale_changed)
+        self.overlay_show_full_btn.toggled.connect(self._on_overlay_changed)
+        self.overlay_show_roi_btn.toggled.connect(self._on_overlay_changed)
 
         return panel
 
@@ -1262,10 +1208,17 @@ class BeamViewerWindow(QMainWindow):
         self.h_overlay_side.setEnabled(h_on)
         self.v_overlay_side.setEnabled(v_on)
 
+        show_full = self.overlay_show_full_btn.isChecked()
+        show_roi = self.overlay_show_roi_btn.isChecked()
+        self.overlay_show_full_btn.setText("✓  Full" if show_full else "Full")
+        self.overlay_show_roi_btn.setText("✓  ROI" if show_roi else "ROI")
+
         self._overlay_state.h_enabled = h_on
         self._overlay_state.h_side = self.h_overlay_side.currentText().lower()
         self._overlay_state.v_enabled = v_on
         self._overlay_state.v_side = self.v_overlay_side.currentText().lower()
+        self._overlay_state.show_full = show_full
+        self._overlay_state.show_roi = show_roi
 
         self._refresh_overlays()
         self.overlay_settings_changed.emit(self._overlay_state)
@@ -1278,68 +1231,36 @@ class BeamViewerWindow(QMainWindow):
         self.overlay_settings_changed.emit(self._overlay_state)
 
     def _refresh_overlays(self) -> None:
-        """Recompute and redraw projection overlays on both image panes with per-pane settings."""
+        """Recompute and redraw projection overlays on both image panes."""
         if self._last_frame is None:
             return
         frame = self._last_frame
         h, w = frame.shape[:2]
-        x_proj = np.mean(frame, axis=0)
-        y_proj = np.mean(frame, axis=1)
 
-        # Resolve full pane overlay settings
-        h_state, v_state = self._resolve_pane_overlay_state("full")
-        self.image_pane_1.update_projections(x_proj, y_proj, (h, w), h_state, v_state)
+        # Full-image pane
+        if self._overlay_state.show_full:
+            x_proj = np.mean(frame, axis=0)
+            y_proj = np.mean(frame, axis=1)
+            self.image_pane_1.update_projections(x_proj, y_proj, (h, w), self._overlay_state)
+        else:
+            self.image_pane_1.clear_projections()
 
         # ROI pane
-        roi_frame = self.image_pane_1.get_roi_slice(frame)
-        if roi_frame is not None and roi_frame.size > 0:
-            roi_x = np.mean(roi_frame, axis=0)
-            roi_y = np.mean(roi_frame, axis=1)
-            roi_h_state, roi_v_state = self._resolve_pane_overlay_state("roi")
-            self.image_pane_2.update_projections(
-                roi_x, roi_y, roi_frame.shape[:2], roi_h_state, roi_v_state,
-            )
+        if self._overlay_state.show_roi:
+            roi_frame = self.image_pane_1.get_roi_slice(frame)
+            if roi_frame is not None and roi_frame.size > 0:
+                roi = self.image_pane_1.current_roi
+                rx0, ry0 = (roi[0], roi[1]) if roi is not None else (0, 0)
+                roi_x = np.mean(roi_frame, axis=0)
+                roi_y = np.mean(roi_frame, axis=1)
+                self.image_pane_2.update_projections(
+                    roi_x, roi_y, roi_frame.shape[:2], self._overlay_state,
+                    x_offset=float(rx0), y_offset=float(ry0),
+                )
+            else:
+                self.image_pane_2.clear_projections()
         else:
             self.image_pane_2.clear_projections()
-
-    def _resolve_pane_overlay_state(self, pane_id: str) -> tuple:
-        """Resolve overlay settings for a specific pane, applying per-pane overrides.
-
-        Returns (h_overlay_state, v_overlay_state) for the pane.
-        """
-        pane_enabled = self._pane_overlay_enabled.get(pane_id, True)
-        side_override = self._pane_side_override.get(pane_id)
-
-        # Build per-pane state objects by copying global state and applying overrides
-        h_state = OverlayState(
-            h_enabled=self._overlay_state.h_enabled and pane_enabled,
-            h_side=(side_override if side_override in ("top", "bottom") else self._overlay_state.h_side),
-            v_enabled=False,  # Horizontal overlay, no vertical component
-            v_side="",
-            scale=self._overlay_state.scale,
-        )
-
-        v_state = OverlayState(
-            h_enabled=False,  # Vertical overlay, no horizontal component
-            h_side="",
-            v_enabled=self._overlay_state.v_enabled and pane_enabled,
-            v_side=(side_override if side_override in ("left", "right") else self._overlay_state.v_side),
-            scale=self._overlay_state.scale,
-        )
-
-        return h_state, v_state
-
-    @pyqtSlot(str, bool)
-    def _on_pane_overlay_toggled(self, pane_id: str, enabled: bool) -> None:
-        """Handle per-pane overlay toggle."""
-        self._pane_overlay_enabled[pane_id] = enabled
-        self._refresh_overlays()
-
-    @pyqtSlot(str, object)
-    def _on_pane_overlay_side_override(self, pane_id: str, side_or_none: object) -> None:
-        """Handle per-pane overlay side override."""
-        self._pane_side_override[pane_id] = side_or_none
-        self._refresh_overlays()
 
     def _on_fit_full_toggled(self, checked: bool) -> None:
         self.fit_full_btn.setText(
@@ -1556,12 +1477,19 @@ class BeamViewerWindow(QMainWindow):
             self.h_proj_1.clear_fit()
             self.v_proj_1.clear_fit()
 
-        # full-image projection overlays (via _refresh_overlays, which applies per-pane settings)
-        # Actual rendering happens in _refresh_overlays
+        # full-image projection overlays
+        if self._overlay_state.show_full:
+            x_proj = np.mean(frame, axis=0)
+            y_proj = np.mean(frame, axis=1)
+            if fs.analysis is not None:
+                x_proj = fs.analysis.x_projection
+                y_proj = fs.analysis.y_projection
+            self.image_pane_1.update_projections(x_proj, y_proj, (h, w), self._overlay_state)
+        else:
+            self.image_pane_1.clear_projections()
 
         # ROI pane
         self._update_roi()
-        self._refresh_overlays()
 
     # ------------------------------------------------------------------
     # ROI helpers
@@ -1639,6 +1567,16 @@ class BeamViewerWindow(QMainWindow):
         self.overlay_scale_slider.blockSignals(False)
         self.overlay_scale_label.setText(f"{slider_val}%")
 
+        self.overlay_show_full_btn.blockSignals(True)
+        self.overlay_show_full_btn.setChecked(state.show_full)
+        self.overlay_show_full_btn.setText("✓  Full" if state.show_full else "Full")
+        self.overlay_show_full_btn.blockSignals(False)
+
+        self.overlay_show_roi_btn.blockSignals(True)
+        self.overlay_show_roi_btn.setChecked(state.show_roi)
+        self.overlay_show_roi_btn.setText("✓  ROI" if state.show_roi else "ROI")
+        self.overlay_show_roi_btn.blockSignals(False)
+
     def _update_roi(self) -> None:
         """Extract the ROI from the cached frame and refresh the bottom pane.
 
@@ -1657,6 +1595,7 @@ class BeamViewerWindow(QMainWindow):
         # and position the cropped sub-image at its full-image offset so
         # that it aligns with the pixel-coordinate axes.
         roi = self.image_pane_1.current_roi
+        x0, y0 = 0, 0
         if roi is not None:
             x0, y0, x1, y1 = roi
             self.image_pane_2.set_axis_range(x0, x1, y0, y1)
@@ -1670,13 +1609,20 @@ class BeamViewerWindow(QMainWindow):
         self.h_proj_2.set_projection(bp_no_fit.x_projection)
         self.v_proj_2.set_projection(bp_no_fit.y_projection)
 
-        # ROI projection overlays (via _refresh_overlays, which applies per-pane settings)
+        # ROI projection overlays
+        if self._overlay_state.show_roi:
+            self.image_pane_2.update_projections(
+                bp_no_fit.x_projection, bp_no_fit.y_projection,
+                roi_frame.shape[:2], self._overlay_state,
+                x_offset=float(x0), y_offset=float(y0),
+            )
+        else:
+            self.image_pane_2.clear_projections()
 
         if not self.fit_roi_btn.isChecked():
             # Fitting is off — clear stats immediately and stop here.
             self.h_proj_2.clear_fit()
             self.v_proj_2.clear_fit()
-            self._refresh_overlays()
             return
         # Fitting is on — leave the previous fit stats visible while the new
         # fit is being computed in the background (avoids the flash-to-dashes
