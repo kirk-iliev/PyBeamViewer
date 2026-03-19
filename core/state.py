@@ -14,8 +14,8 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from analysis import BeamParameters
-from config import get_epics_connection, get_pv_names, get_display_settings
+from analysis.analysis import BeamParameters
+from config.config import get_epics_connection, get_pv_names, get_display_settings
 
 
 # ---------------------------------------------------------------------------

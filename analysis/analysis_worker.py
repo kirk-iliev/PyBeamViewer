@@ -11,8 +11,8 @@ from queue import Empty, Full, Queue
 from typing import Optional
 from PyQt5.QtCore import QThread, pyqtSignal, QObject
 
-from state import FrameState
-from analysis import analyze_frame
+from core.state import FrameState
+from analysis.analysis import analyze_frame
 
 
 class AnalysisWorker(QThread):

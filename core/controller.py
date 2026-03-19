@@ -26,8 +26,8 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 
-from analysis_worker import AnalysisWorker
-from config import (
+from analysis.analysis_worker import AnalysisWorker
+from config.config import (
     get_available_prefixes,
     get_active_prefix,
     get_pv_names,
@@ -41,9 +41,9 @@ from config import (
     get_active_background_path,
     set_active_background_path,
 )
-from epics_layer import EpicsWorker, epics_get, epics_put
+from core.epics_layer import EpicsWorker, epics_get, epics_put
 from gui import BeamViewerWindow
-from state import AppState, FrameState
+from core.state import AppState, FrameState
 
 
 class BeamController(QObject):

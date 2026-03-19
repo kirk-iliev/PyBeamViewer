@@ -1,0 +1,241 @@
+"""Right-hand control panel widget (Camera, Acquire, Analysis, Display settings)."""
+
+from __future__ import annotations
+
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import (
+    QComboBox,
+    QDoubleSpinBox,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSlider,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
+
+from .theme import Theme, _MONO
+
+
+class ControlPanel(QWidget):
+    """Builds all control panel widgets as attributes — no signal wiring.
+
+    Signal wiring is handled by the parent :class:`BeamViewerWindow` so
+    that the panel stays a simple, layout-only component.
+    """
+
+    def __init__(self, theme: Theme, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setMinimumWidth(260)
+        self.setMaximumWidth(320)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(6, 6, 6, 6)
+        lay.setSpacing(8)
+
+        # ── Camera Setup ──────────────────────────────────────────
+        cam_grp = QGroupBox("Camera Setup")
+        cam_lay = QGridLayout(cam_grp)
+        cam_lay.setSpacing(6)
+        cam_lay.setContentsMargins(8, 12, 8, 8)
+        cam_lay.setColumnStretch(1, 1)
+        cam_lay.addWidget(QLabel("Camera:"), 0, 0)
+        self.prefix_combo = QComboBox()
+        cam_lay.addWidget(self.prefix_combo, 0, 1, 1, 2)
+
+        cam_lay.addWidget(QLabel("Exposure (s):"), 1, 0)
+        self.exposure_input = QDoubleSpinBox()
+        self.exposure_input.setRange(0.0001, 30.0)
+        self.exposure_input.setDecimals(4)
+        self.exposure_input.setSingleStep(0.01)
+        self.exposure_input.setValue(0.1)
+        cam_lay.addWidget(self.exposure_input, 1, 1)
+        self.exposure_set_btn = QPushButton("Set")
+        self.exposure_set_btn.setMinimumWidth(50)
+        cam_lay.addWidget(self.exposure_set_btn, 1, 2)
+
+        cam_lay.addWidget(QLabel("Gain:"), 2, 0)
+        self.gain_input = QSpinBox()
+        self.gain_input.setRange(0, 40)
+        self.gain_input.setValue(0)
+        cam_lay.addWidget(self.gain_input, 2, 1)
+        self.gain_set_btn = QPushButton("Set")
+        self.gain_set_btn.setMinimumWidth(50)
+        cam_lay.addWidget(self.gain_set_btn, 2, 2)
+
+        self.camera_status_label = QLabel("Changing camera setting (press escape to cancel)")
+        self.camera_status_label.setStyleSheet("font-style: italic;")
+        self.camera_status_label.setWordWrap(True)
+        self.camera_status_label.setVisible(False)
+        cam_lay.addWidget(self.camera_status_label, 3, 0, 1, 3)
+
+        lay.addWidget(cam_grp)
+
+        # ── Acquire ───────────────────────────────────────────────
+        acq_grp = QGroupBox("Acquire")
+        acq_lay = QVBoxLayout(acq_grp)
+        acq_lay.setContentsMargins(8, 12, 8, 8)
+        self.stream_btn = QPushButton("Streaming")
+        self.stream_btn.setCheckable(True)
+        self.stream_btn.setChecked(True)
+        self.stream_btn.setMinimumHeight(32)
+        # Apply initial streaming style (green)
+        self.stream_btn.setStyleSheet(
+            "QPushButton { background-color: #2ecc71; color: #ffffff; font-weight: 600; }"
+        )
+        acq_lay.addWidget(self.stream_btn)
+
+        self.acquire_bg_btn = QPushButton("Acquire Background")
+        self.acquire_bg_btn.setMinimumHeight(28)
+        self.acquire_bg_btn.setToolTip("Capture the current frame as the background reference")
+        acq_lay.addWidget(self.acquire_bg_btn)
+
+        self.bg_subtract_btn = QPushButton("Background Sub")
+        self.bg_subtract_btn.setCheckable(True)
+        self.bg_subtract_btn.setChecked(False)
+        self.bg_subtract_btn.setEnabled(False)   # disabled until a BG is acquired
+        self.bg_subtract_btn.setMinimumHeight(28)
+        self.bg_subtract_btn.setToolTip("Subtract the stored background from every incoming frame")
+        acq_lay.addWidget(self.bg_subtract_btn)
+
+        self.bg_status_label = QLabel("BG: none")
+        self.bg_status_label.setAlignment(Qt.AlignCenter)
+        self.bg_status_label.setStyleSheet(
+            f"color: {theme.text_dim}; font-size: 11px; font-family: {_MONO};"
+        )
+        acq_lay.addWidget(self.bg_status_label)
+
+        # Save / Load background buttons (side by side)
+        bg_io_row = QHBoxLayout()
+        bg_io_row.setSpacing(6)
+        self.save_bg_btn = QPushButton("Save BG")
+        self.save_bg_btn.setMinimumHeight(28)
+        self.save_bg_btn.setEnabled(False)   # enabled once a BG exists
+        self.save_bg_btn.setToolTip("Save the current background to disk")
+        bg_io_row.addWidget(self.save_bg_btn)
+        self.load_bg_btn = QPushButton("Load BG")
+        self.load_bg_btn.setMinimumHeight(28)
+        self.load_bg_btn.setToolTip("Load a previously saved background from disk")
+        bg_io_row.addWidget(self.load_bg_btn)
+        acq_lay.addLayout(bg_io_row)
+
+        lay.addWidget(acq_grp)
+
+        # ── Analysis ──────────────────────────────────────────────
+        analysis_grp = QGroupBox("Analysis")
+        analysis_lay = QVBoxLayout(analysis_grp)
+        analysis_lay.setContentsMargins(8, 12, 8, 8)
+        analysis_lay.setSpacing(6)
+
+        self.fit_full_btn = QPushButton("Fit Full Image")
+        self.fit_full_btn.setCheckable(True)
+        self.fit_full_btn.setChecked(True)
+        self.fit_full_btn.setMinimumHeight(28)
+        analysis_lay.addWidget(self.fit_full_btn)
+
+        self.fit_roi_btn = QPushButton("Fit ROI")
+        self.fit_roi_btn.setCheckable(True)
+        self.fit_roi_btn.setChecked(False)
+        self.fit_roi_btn.setMinimumHeight(28)
+        analysis_lay.addWidget(self.fit_roi_btn)
+
+        self.clear_roi_btn = QPushButton("✕  Clear ROI")
+        self.clear_roi_btn.setMinimumHeight(28)
+        self.clear_roi_btn.setToolTip("Remove the current ROI selection")
+        analysis_lay.addWidget(self.clear_roi_btn)
+
+        self.center_roi_btn = QPushButton("⊕  Center ROI")
+        self.center_roi_btn.setMinimumHeight(28)
+        self.center_roi_btn.setToolTip(
+            "Re-center the ROI as a square around the intensity centroid"
+        )
+        self.center_roi_btn.setEnabled(False)
+        analysis_lay.addWidget(self.center_roi_btn)
+
+        lay.addWidget(analysis_grp)
+
+        # ── Image Settings ────────────────────────────────────────
+        img_grp = QGroupBox("Image Settings")
+        img_lay = QGridLayout(img_grp)
+        img_lay.setContentsMargins(8, 12, 8, 8)
+        img_lay.setColumnStretch(1, 1)
+        img_lay.addWidget(QLabel("Colormap:"), 0, 0)
+        self.colormap_combo = QComboBox()
+        self.colormap_combo.addItems([
+            "hot", "viridis", "inferno",  "plasma", "magma", "cividis", "gray",
+        ])
+        self.colormap_combo.setCurrentIndex(0)  # Default to "hot"
+        img_lay.addWidget(self.colormap_combo, 0, 1)
+
+        lay.addWidget(img_grp)
+
+        # ── Projection Overlays ───────────────────────────────────
+        overlay_grp = QGroupBox("Projection Overlays")
+        overlay_lay = QGridLayout(overlay_grp)
+        overlay_lay.setContentsMargins(8, 12, 8, 8)
+        overlay_lay.setSpacing(6)
+        overlay_lay.setColumnStretch(1, 1)
+
+        # H overlay toggle + side selector
+        self.h_overlay_btn = QPushButton("H Overlay")
+        self.h_overlay_btn.setCheckable(True)
+        self.h_overlay_btn.setChecked(False)
+        self.h_overlay_btn.setMinimumHeight(28)
+        overlay_lay.addWidget(self.h_overlay_btn, 0, 0)
+
+        self.h_overlay_side = QComboBox()
+        self.h_overlay_side.addItems(["Bottom", "Top"])
+        self.h_overlay_side.setCurrentIndex(0)
+        self.h_overlay_side.setEnabled(False)
+        overlay_lay.addWidget(self.h_overlay_side, 0, 1)
+
+        # V overlay toggle + side selector
+        self.v_overlay_btn = QPushButton("V Overlay")
+        self.v_overlay_btn.setCheckable(True)
+        self.v_overlay_btn.setChecked(False)
+        self.v_overlay_btn.setMinimumHeight(28)
+        overlay_lay.addWidget(self.v_overlay_btn, 1, 0)
+
+        self.v_overlay_side = QComboBox()
+        self.v_overlay_side.addItems(["Left", "Right"])
+        self.v_overlay_side.setCurrentIndex(0)
+        self.v_overlay_side.setEnabled(False)
+        overlay_lay.addWidget(self.v_overlay_side, 1, 1)
+
+        # Scale slider
+        overlay_lay.addWidget(QLabel("Scale:"), 2, 0)
+        scale_row = QHBoxLayout()
+        self.overlay_scale_slider = QSlider(Qt.Horizontal)
+        self.overlay_scale_slider.setRange(5, 50)   # 5% – 50%
+        self.overlay_scale_slider.setValue(25)
+        self.overlay_scale_slider.setTickInterval(5)
+        self.overlay_scale_label = QLabel("25%")
+        scale_row.addWidget(self.overlay_scale_slider, stretch=1)
+        scale_row.addWidget(self.overlay_scale_label)
+        scale_container = QWidget()
+        scale_container.setLayout(scale_row)
+        overlay_lay.addWidget(scale_container, 2, 1)
+
+        # Show-on scope: which panes receive the overlays
+        overlay_lay.addWidget(QLabel("Show on:"), 3, 0)
+        scope_row = QHBoxLayout()
+        scope_row.setSpacing(6)
+        self.overlay_show_full_btn = QPushButton("✓  Full")
+        self.overlay_show_full_btn.setCheckable(True)
+        self.overlay_show_full_btn.setChecked(True)
+        self.overlay_show_full_btn.setMinimumHeight(26)
+        scope_row.addWidget(self.overlay_show_full_btn)
+        self.overlay_show_roi_btn = QPushButton("✓  ROI")
+        self.overlay_show_roi_btn.setCheckable(True)
+        self.overlay_show_roi_btn.setChecked(True)
+        self.overlay_show_roi_btn.setMinimumHeight(26)
+        scope_row.addWidget(self.overlay_show_roi_btn)
+        scope_container = QWidget()
+        scope_container.setLayout(scope_row)
+        overlay_lay.addWidget(scope_container, 3, 1)
+
+        lay.addWidget(overlay_grp)
+
+        lay.addStretch()

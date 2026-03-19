@@ -12,9 +12,9 @@ import sys
 import pyqtgraph as pg
 from PyQt5.QtWidgets import QApplication
 
-from controller import BeamController
+from core.controller import BeamController
 from gui import BeamViewerWindow
-from state import AppState
+from core.state import AppState
 
 
 def main() -> None:
