@@ -35,6 +35,11 @@ from config import (
     save_roi_for_prefix,
     load_overlay_settings,
     save_overlay_settings,
+    save_background_to_file,
+    load_background_from_file,
+    list_saved_backgrounds,
+    get_active_background_path,
+    set_active_background_path,
 )
 from epics_layer import EpicsWorker, epics_get, epics_put
 from gui import BeamViewerWindow
@@ -93,6 +98,8 @@ class BeamController(QObject):
         self.gui.roi_changed.connect(self._on_roi_changed)
         self.gui.acquire_background_requested.connect(self._on_acquire_background_requested)
         self.gui.bg_subtraction_toggled.connect(self._on_bg_subtraction_toggled)
+        self.gui.save_background_requested.connect(self._on_save_background_requested)
+        self.gui.load_background_requested.connect(self._on_load_background_requested)
         self.gui.overlay_settings_changed.connect(self._on_overlay_settings_changed)
 
         # --- thread-safe RBV update signals ---
@@ -131,6 +138,8 @@ class BeamController(QObject):
         from gui import OverlayState
         overlay_dict = load_overlay_settings()
         self.gui.restore_overlay_state(OverlayState.from_dict(overlay_dict))
+        # Restore active background for the current prefix
+        self._restore_background_for_prefix(self._active_prefix)
 
     def stop(self) -> None:
         """Gracefully shut down both worker threads."""
@@ -161,9 +170,16 @@ class BeamController(QObject):
         if self._acquire_next_frame:
             self.state.background_frame = frame.copy()
             self._acquire_next_frame = False
+            # Cache for this prefix so it survives beamline switches
+            self.state.store_background_for_prefix(self._active_prefix, frame.copy())
+            self.state.store_bg_enabled_for_prefix(self._active_prefix, True)
             # Automatically activate subtraction after acquiring (mirrors MATLAB behaviour)
             self.state.bg_subtraction_enabled = True
             self.gui.set_bg_status(has_bg=True, sub_enabled=True)
+            # Persist as the active background for this prefix
+            path = save_background_to_file(self._active_prefix, frame)
+            set_active_background_path(self._active_prefix, path)
+            self._refresh_bg_file_list()
             print("Background frame captured.")
 
         # --- Background subtraction ---
@@ -215,8 +231,15 @@ class BeamController(QObject):
         """Switch to a different camera PV prefix."""
         print(f"Switching to prefix: {prefix}")
 
+        old_prefix = self._active_prefix
+
         # Save the current ROI for the camera we are leaving
-        save_roi_for_prefix(self._active_prefix, self.gui.get_current_roi())
+        save_roi_for_prefix(old_prefix, self.gui.get_current_roi())
+
+        # Save the outgoing prefix's bg subtraction-enabled state
+        self.state.store_bg_enabled_for_prefix(
+            old_prefix, self.state.bg_subtraction_enabled
+        )
 
         self._epics_worker.stop()
         self._active_prefix = prefix
@@ -248,10 +271,8 @@ class BeamController(QObject):
         # Restore any previously saved ROI for the newly selected camera
         self.gui.restore_roi(get_roi_for_prefix(prefix))
 
-        # Clear background when switching cameras (background is camera-specific)
-        self.state.background_frame = None
-        self.state.bg_subtraction_enabled = False
-        self.gui.reset_bg_controls()
+        # Save current prefix bg state, then restore the new prefix's background
+        self._restore_background_for_prefix(prefix)
 
     def _refresh_camera_settings(self) -> None:
         """Read exposure and gain RBVs from EPICS in a background thread."""
@@ -333,10 +354,74 @@ class BeamController(QObject):
     def _on_bg_subtraction_toggled(self, enabled: bool) -> None:
         """Enable or disable background subtraction."""
         self.state.bg_subtraction_enabled = enabled
+        self.state.store_bg_enabled_for_prefix(self._active_prefix, enabled)
         has_bg = self.state.background_frame is not None
         # Update status label to reflect new toggle state
         self.gui.set_bg_status(has_bg=has_bg, sub_enabled=enabled)
         print(f"Background subtraction {'enabled' if enabled else 'disabled'}.")
+
+    @pyqtSlot()
+    def _on_save_background_requested(self) -> None:
+        """Save the current in-memory background to a timestamped .npy file."""
+        bg = self.state.background_frame
+        if bg is None:
+            return
+        path = save_background_to_file(self._active_prefix, bg)
+        set_active_background_path(self._active_prefix, path)
+        self._refresh_bg_file_list()
+        print(f"Background saved to {path}")
+
+    @pyqtSlot(str)
+    def _on_load_background_requested(self, path_str: str) -> None:
+        """Load a background frame from a .npy file on disk."""
+        from pathlib import Path
+        path = Path(path_str)
+        if not path.exists():
+            print(f"[BG Load] File not found: {path}")
+            return
+        bg = load_background_from_file(path)
+        self.state.background_frame = bg
+        self.state.store_background_for_prefix(self._active_prefix, bg)
+        self.state.bg_subtraction_enabled = True
+        self.state.store_bg_enabled_for_prefix(self._active_prefix, True)
+        set_active_background_path(self._active_prefix, path)
+        self.gui.set_bg_status(has_bg=True, sub_enabled=True)
+        print(f"Background loaded from {path.name}")
+
+    # ------------------------------------------------------------------
+    # Background persistence helpers
+    # ------------------------------------------------------------------
+
+    def _restore_background_for_prefix(self, prefix: str) -> None:
+        """Restore the background for *prefix* from cache or disk."""
+        # Try in-memory cache first
+        bg = self.state.get_background_for_prefix(prefix)
+        if bg is None:
+            # Fall back to persisted active background on disk
+            active_path = get_active_background_path(prefix)
+            if active_path is not None:
+                try:
+                    bg = load_background_from_file(active_path)
+                    self.state.store_background_for_prefix(prefix, bg)
+                except Exception as exc:
+                    print(f"[BG Restore] Failed to load {active_path}: {exc}")
+
+        if bg is not None:
+            self.state.background_frame = bg
+            sub_enabled = self.state.get_bg_enabled_for_prefix(prefix)
+            self.state.bg_subtraction_enabled = sub_enabled
+            self.gui.set_bg_status(has_bg=True, sub_enabled=sub_enabled)
+        else:
+            self.state.background_frame = None
+            self.state.bg_subtraction_enabled = False
+            self.gui.reset_bg_controls()
+
+        self._refresh_bg_file_list()
+
+    def _refresh_bg_file_list(self) -> None:
+        """Update the GUI's cached list of saved backgrounds for the active prefix."""
+        files = list_saved_backgrounds(self._active_prefix)
+        self.gui.set_bg_file_list(files)
 
     def _on_fit_full_toggled(self, enabled: bool) -> None:
         """Enable or disable Gaussian fitting on the full image."""

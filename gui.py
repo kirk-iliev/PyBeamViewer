@@ -35,11 +35,15 @@ from PyQt5.QtGui import QColor, QPalette
 from PyQt5.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QPushButton,
     QSlider,
@@ -745,6 +749,48 @@ class _ImagePane(QWidget):
 
 
 # ---------------------------------------------------------------------------
+# Load Background dialog
+# ---------------------------------------------------------------------------
+
+class _LoadBackgroundDialog(QDialog):
+    """Simple dialog listing saved .npy background files for selection."""
+
+    def __init__(self, files: list, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Load Background")
+        self.setMinimumSize(400, 300)
+        self.selected_path: str | None = None
+
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel("Select a saved background:"))
+
+        self._list = QListWidget()
+        for f in files:
+            from pathlib import Path
+            p = Path(f) if not isinstance(f, Path) else f
+            item = QListWidgetItem(p.name)
+            item.setData(Qt.UserRole, str(p))
+            self._list.addItem(item)
+        self._list.itemDoubleClicked.connect(self._accept_item)
+        lay.addWidget(self._list)
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btn_box.accepted.connect(self._accept_selected)
+        btn_box.rejected.connect(self.reject)
+        lay.addWidget(btn_box)
+
+    def _accept_item(self, item: QListWidgetItem) -> None:
+        self.selected_path = item.data(Qt.UserRole)
+        self.accept()
+
+    def _accept_selected(self) -> None:
+        item = self._list.currentItem()
+        if item is not None:
+            self.selected_path = item.data(Qt.UserRole)
+            self.accept()
+
+
+# ---------------------------------------------------------------------------
 # Main window
 # ---------------------------------------------------------------------------
 
@@ -762,6 +808,8 @@ class BeamViewerWindow(QMainWindow):
     center_roi_requested = pyqtSignal()
     acquire_background_requested = pyqtSignal()
     bg_subtraction_toggled = pyqtSignal(bool)
+    save_background_requested = pyqtSignal()
+    load_background_requested = pyqtSignal(str)   # carries the .npy file path
     overlay_settings_changed = pyqtSignal(object)  # OverlayState
     # Emitted from a background thread when ROI fitting completes.
     # Payload is a tuple (seq: int, bp: BeamParameters).
@@ -772,6 +820,7 @@ class BeamViewerWindow(QMainWindow):
         self._theme: _Theme = DARK
         self._fallback_shape = fallback_shape  # (height, width) for axis ranges
         self._overlay_state = OverlayState()
+        self._bg_file_list_for_dialog: list = []
 
         self.setWindowTitle("Beam Profile Viewer")
         self.resize(1500, 920)
@@ -1013,6 +1062,20 @@ class BeamViewerWindow(QMainWindow):
         )
         acq_lay.addWidget(self.bg_status_label)
 
+        # Save / Load background buttons (side by side)
+        bg_io_row = QHBoxLayout()
+        bg_io_row.setSpacing(6)
+        self.save_bg_btn = QPushButton("Save BG")
+        self.save_bg_btn.setMinimumHeight(28)
+        self.save_bg_btn.setEnabled(False)   # enabled once a BG exists
+        self.save_bg_btn.setToolTip("Save the current background to disk")
+        bg_io_row.addWidget(self.save_bg_btn)
+        self.load_bg_btn = QPushButton("Load BG")
+        self.load_bg_btn.setMinimumHeight(28)
+        self.load_bg_btn.setToolTip("Load a previously saved background from disk")
+        bg_io_row.addWidget(self.load_bg_btn)
+        acq_lay.addLayout(bg_io_row)
+
         lay.addWidget(acq_grp)
 
         # ── Analysis ──────────────────────────────────────────────
@@ -1158,6 +1221,8 @@ class BeamViewerWindow(QMainWindow):
         )
         self.acquire_bg_btn.clicked.connect(self.acquire_background_requested.emit)
         self.bg_subtract_btn.toggled.connect(self._on_bg_subtraction_toggled)
+        self.save_bg_btn.clicked.connect(self.save_background_requested.emit)
+        self.load_bg_btn.clicked.connect(self._on_load_bg_clicked)
 
         # Overlay controls
         self.h_overlay_btn.toggled.connect(self._on_overlay_changed)
@@ -1341,6 +1406,7 @@ class BeamViewerWindow(QMainWindow):
         Does NOT emit any signal (controller-driven update).
         """
         self.bg_subtract_btn.setEnabled(has_bg)
+        self.save_bg_btn.setEnabled(has_bg)
         self.bg_subtract_btn.blockSignals(True)
         self.bg_subtract_btn.setChecked(sub_enabled)
         self.bg_subtract_btn.setText(
@@ -1356,7 +1422,21 @@ class BeamViewerWindow(QMainWindow):
         self.bg_subtract_btn.setText("Background Sub")
         self.bg_subtract_btn.setEnabled(False)
         self.bg_subtract_btn.blockSignals(False)
+        self.save_bg_btn.setEnabled(False)
         self._update_bg_status_label(has_bg=False, sub_enabled=False)
+
+    def _on_load_bg_clicked(self) -> None:
+        """Open the load-background dialog and emit the chosen path."""
+        files = self._bg_file_list_for_dialog
+        if not files:
+            return
+        dlg = _LoadBackgroundDialog(files, parent=self)
+        if dlg.exec_() == QDialog.Accepted and dlg.selected_path:
+            self.load_background_requested.emit(str(dlg.selected_path))
+
+    def set_bg_file_list(self, files: list) -> None:
+        """Cache the list of background files for the current prefix."""
+        self._bg_file_list_for_dialog = files
 
     # ------------------------------------------------------------------
     # Control panel public API

@@ -8,8 +8,11 @@ simply change the 'active_prefix' field in config.json.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+import numpy as np
 
 
 def _get_config_path() -> Path:
@@ -144,3 +147,70 @@ def load_overlay_settings() -> dict:
         "v_side": "left",
         "scale": 0.25,
     })
+
+
+# ---------------------------------------------------------------------------
+# Background persistence
+# ---------------------------------------------------------------------------
+
+def _get_backgrounds_dir() -> Path:
+    """Return (and create if needed) the backgrounds/ directory."""
+    bg_dir = Path(__file__).parent / "backgrounds"
+    bg_dir.mkdir(exist_ok=True)
+    return bg_dir
+
+
+def save_background_to_file(prefix: str, frame: np.ndarray) -> Path:
+    """Save *frame* as a .npy file in ``backgrounds/<prefix>_<timestamp>.npy``.
+
+    Returns the path to the saved file.
+    """
+    bg_dir = _get_backgrounds_dir()
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{prefix}_{ts}.npy"
+    path = bg_dir / filename
+    np.save(path, frame)
+    return path
+
+
+def load_background_from_file(path: Path | str) -> np.ndarray:
+    """Load a background frame from a ``.npy`` file."""
+    return np.load(Path(path))
+
+
+def list_saved_backgrounds(prefix: Optional[str] = None) -> List[Path]:
+    """List saved background .npy files, optionally filtered by *prefix*.
+
+    Returns paths sorted newest-first (by filename timestamp).
+    """
+    bg_dir = _get_backgrounds_dir()
+    if prefix:
+        files = sorted(bg_dir.glob(f"{prefix}_*.npy"), reverse=True)
+    else:
+        files = sorted(bg_dir.glob("*.npy"), reverse=True)
+    return files
+
+
+def get_active_background_path(prefix: str) -> Optional[Path]:
+    """Return the path to the currently active background for *prefix*, or None."""
+    config = load_config()
+    entry = config.get("active_backgrounds", {}).get(prefix)
+    if entry is None:
+        return None
+    p = Path(entry)
+    if p.exists():
+        return p
+    return None
+
+
+def set_active_background_path(prefix: str, path: Optional[Path | str]) -> None:
+    """Persist the active background file path for *prefix* in config.json."""
+    config_path = _get_config_path()
+    config = load_config()
+    active: Dict[str, Any] = config.setdefault("active_backgrounds", {})
+    if path is None:
+        active.pop(prefix, None)
+    else:
+        active[prefix] = str(path)
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)

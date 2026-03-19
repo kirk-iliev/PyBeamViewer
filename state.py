@@ -74,6 +74,10 @@ class AppState:
         self._frame_count: int = 0
         self._background_frame: Optional[np.ndarray] = None
         self._bg_subtraction_enabled: bool = False
+        # Per-prefix background cache: {prefix: ndarray}
+        self._backgrounds: dict[str, np.ndarray] = {}
+        # Per-prefix subtraction toggle: {prefix: bool}
+        self._bg_enabled_map: dict[str, bool] = {}
 
         # ---- Display / analysis settings ----------------------------------
         self.enable_fitting: bool = display_opts.get("enable_fitting", True)
@@ -136,3 +140,25 @@ class AppState:
     def bg_subtraction_enabled(self, value: bool) -> None:
         with self._lock:
             self._bg_subtraction_enabled = value
+
+    # -- per-prefix background cache ----------------------------------------
+
+    def store_background_for_prefix(self, prefix: str, frame: np.ndarray) -> None:
+        """Cache a background frame for *prefix*."""
+        with self._lock:
+            self._backgrounds[prefix] = frame
+
+    def get_background_for_prefix(self, prefix: str) -> Optional[np.ndarray]:
+        """Return the cached background for *prefix*, or None."""
+        with self._lock:
+            return self._backgrounds.get(prefix)
+
+    def store_bg_enabled_for_prefix(self, prefix: str, enabled: bool) -> None:
+        """Remember whether subtraction was enabled for *prefix*."""
+        with self._lock:
+            self._bg_enabled_map[prefix] = enabled
+
+    def get_bg_enabled_for_prefix(self, prefix: str) -> bool:
+        """Return whether subtraction was enabled for *prefix*."""
+        with self._lock:
+            return self._bg_enabled_map.get(prefix, False)
