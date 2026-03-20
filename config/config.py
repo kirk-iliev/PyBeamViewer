@@ -82,6 +82,12 @@ def get_display_settings() -> Dict[str, Any]:
     })
 
 
+def get_calibration_config(prefix: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Return the ``"calibration"`` dict for *prefix*, or ``None`` if absent."""
+    pv_names = get_pv_names(prefix)
+    return pv_names.get("calibration")
+
+
 def get_available_prefixes() -> list:
     """Return the list of configured PV prefix names (e.g. ['BL31', 'BL72'])."""
     config = load_config()

@@ -27,6 +27,7 @@ import pyqtgraph as pg
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from analysis.analysis_worker import AnalysisWorker
+from analysis.calibration import load_calibration
 from config.config import (
     get_available_prefixes,
     get_active_prefix,
@@ -83,6 +84,10 @@ class BeamController(QObject):
         )
         self._analysis_worker = AnalysisWorker()
 
+        # --- load calibration for the active camera ---
+        self._calibration = load_calibration(self._active_prefix)
+        self._analysis_worker.set_calibration(self._calibration)
+
         # --- connect EPICS / analysis signals ---
         self._connect_epics_signals()
         self._analysis_worker.analysis_done.connect(self._on_analysis_done)
@@ -130,6 +135,8 @@ class BeamController(QObject):
         self._analysis_worker.start()
         self._epics_worker.start()
         self._refresh_camera_settings()
+        # Push calibration to the GUI for ROI fitting
+        self.gui.set_calibration(self._calibration)
         # Restore any previously saved ROI for the active camera
         saved_roi = get_roi_for_prefix(self._active_prefix)
         if saved_roi is not None:
@@ -268,6 +275,10 @@ class BeamController(QObject):
         self._connect_epics_signals()
         self._epics_worker.start()
         self._refresh_camera_settings()
+        # Reload calibration for the new prefix
+        self._calibration = load_calibration(prefix)
+        self._analysis_worker.set_calibration(self._calibration)
+        self.gui.set_calibration(self._calibration)
         # Restore any previously saved ROI for the newly selected camera
         self.gui.restore_roi(get_roi_for_prefix(prefix))
 

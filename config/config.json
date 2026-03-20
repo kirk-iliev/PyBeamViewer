@@ -12,7 +12,12 @@
       "fallback_shape": [
         300,
         300
-      ]
+      ],
+      "calibration": {
+        "method": "fixed",
+        "pixel_size_um": 1.8852,
+        "description": "Fixed calibration from 2015 re-alignment"
+      }
     },
     "BL72": {
       "image_pv": "BL72:image1:ArrayData",
@@ -25,7 +30,15 @@
       "fallback_shape": [
         1038,
         1300
-      ]
+      ],
+      "calibration": {
+        "method": "pinhole",
+        "pinhole_spacing_um": 1000.0,
+        "source_to_pinhole_mm": 6.08,
+        "pinhole_to_sensor_mm": 2.04,
+        "measured_pinhole_spacing_px": 274.7778,
+        "description": "Pinhole BPM at fixed zoom position 10000 (2021 calibration)"
+      }
     }
   },
   "epics": {

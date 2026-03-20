@@ -43,6 +43,7 @@ from PyQt5.QtWidgets import (
 )
 
 from analysis.analysis import analyze_frame
+from analysis.calibration import Calibration
 from core.state import FrameState
 
 from .control_panel import ControlPanel
@@ -80,6 +81,7 @@ class BeamViewerWindow(QMainWindow):
         self._fallback_shape = fallback_shape  # (height, width) for axis ranges
         self._overlay_state = OverlayState()
         self._bg_file_list_for_dialog: list = []
+        self._calibration: Calibration = Calibration()  # uncalibrated default
 
         self.setWindowTitle("Beam Profile Viewer")
         self.resize(1500, 920)
@@ -619,6 +621,7 @@ class BeamViewerWindow(QMainWindow):
             if xf is not None and xf.success:
                 self.h_proj_1.set_fit(
                     xf.fitted_curve, xf.sigma, xf.centroid, xf.amplitude,
+                    sigma_um=xf.sigma_um, unit_label=xf.unit_label,
                 )
             else:
                 self.h_proj_1.clear_fit()
@@ -627,6 +630,7 @@ class BeamViewerWindow(QMainWindow):
             if yf is not None and yf.success:
                 self.v_proj_1.set_fit(
                     yf.fitted_curve, yf.sigma, yf.centroid, yf.amplitude,
+                    sigma_um=yf.sigma_um, unit_label=yf.unit_label,
                 )
             else:
                 self.v_proj_1.clear_fit()
@@ -805,7 +809,11 @@ class BeamViewerWindow(QMainWindow):
 
         def _run() -> None:
             try:
-                bp = analyze_frame(frame_snapshot, do_fit=True)
+                bp = analyze_frame(
+                    frame_snapshot,
+                    do_fit=True,
+                    calibration=self._calibration,
+                )
                 self._roi_analysis_ready.emit((seq, bp))
             finally:
                 self._roi_fit_running = False
@@ -823,6 +831,7 @@ class BeamViewerWindow(QMainWindow):
             self.h_proj_2.set_fit(
                 bp.x_fit.fitted_curve, bp.x_fit.sigma,
                 bp.x_fit.centroid, bp.x_fit.amplitude,
+                sigma_um=bp.x_fit.sigma_um, unit_label=bp.x_fit.unit_label,
             )
         else:
             self.h_proj_2.clear_fit()
@@ -831,9 +840,18 @@ class BeamViewerWindow(QMainWindow):
             self.v_proj_2.set_fit(
                 bp.y_fit.fitted_curve, bp.y_fit.sigma,
                 bp.y_fit.centroid, bp.y_fit.amplitude,
+                sigma_um=bp.y_fit.sigma_um, unit_label=bp.y_fit.unit_label,
             )
         else:
             self.v_proj_2.clear_fit()
+
+    # ------------------------------------------------------------------
+    # Calibration
+    # ------------------------------------------------------------------
+
+    def set_calibration(self, calibration: Calibration) -> None:
+        """Update the calibration used for ROI fitting and display."""
+        self._calibration = calibration
 
     # ------------------------------------------------------------------
     # Qt overrides

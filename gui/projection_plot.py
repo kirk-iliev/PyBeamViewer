@@ -139,11 +139,18 @@ class ProjectionPlot(QWidget):
         sigma: float,
         centroid: float,
         amplitude: float,
+        *,
+        sigma_um: float | None = None,
+        unit_label: str = "px",
     ) -> None:
         self.fit_curve.setData(np.arange(len(fitted), dtype=np.float64), fitted)
+        if sigma_um is not None:
+            sigma_text = f"σ: {sigma_um:8.3f} {unit_label}  ({sigma:.2f} px)"
+        else:
+            sigma_text = f"σ: {sigma:8.3f} px (uncal.)"
         self.stats_label.setText(
-            f"Sigma: {sigma:8.3f}    "
-            f"Centroid: {centroid:8.2f}    "
+            f"{sigma_text}    "
+            f"Centroid: {centroid:8.2f} px    "
             f"Amp: {amplitude:8.1f}"
         )
         self._stats_dim = False

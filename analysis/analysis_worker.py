@@ -13,6 +13,7 @@ from PyQt5.QtCore import QThread, pyqtSignal, QObject
 
 from core.state import FrameState
 from analysis.analysis import analyze_frame
+from analysis.calibration import Calibration
 
 
 class AnalysisWorker(QThread):
@@ -45,6 +46,11 @@ class AnalysisWorker(QThread):
         # frames that arrive while a fit is in progress are dropped (see queue_frame).
         self._queue: Queue = Queue(maxsize=1)
         self._should_stop = False
+        self._calibration: Calibration = Calibration()  # uncalibrated default
+
+    def set_calibration(self, calibration: Calibration) -> None:
+        """Update the calibration used for subsequent fits."""
+        self._calibration = calibration
 
     def run(self) -> None:
         """Main loop of the worker thread.
@@ -62,6 +68,7 @@ class AnalysisWorker(QThread):
                 analyzed_state = analyze_frame(
                     frame_state.frame,
                     do_fit=frame_state.do_fit,
+                    calibration=self._calibration,
                 )
 
                 # Package results back into FrameState

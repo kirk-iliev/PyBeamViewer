@@ -9,7 +9,10 @@ extraction.  Based on the MATLAB beamviewer's ``beam_fit_gaussian`` and
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple
+
+if TYPE_CHECKING:
+    from analysis.calibration import Calibration
 
 import numpy as np
 from scipy.optimize import curve_fit
@@ -21,7 +24,12 @@ from scipy.optimize import curve_fit
 
 @dataclass(frozen=True)
 class FitResult:
-    """Result of a 1-D Gaussian fit."""
+    """Result of a 1-D Gaussian fit.
+
+    Raw pixel values (``sigma``, ``centroid``) are always present.
+    Calibrated values (``sigma_um``, ``centroid_um``) are populated when
+    a :class:`~analysis.calibration.Calibration` is applied.
+    """
     sigma: float
     centroid: float
     amplitude: float
@@ -29,6 +37,10 @@ class FitResult:
     fitted_curve: np.ndarray
     residual: float
     success: bool
+    # Calibrated fields — None when uncalibrated
+    sigma_um: Optional[float] = None
+    centroid_um: Optional[float] = None
+    unit_label: str = "px"
 
 
 @dataclass(frozen=True)
@@ -187,11 +199,33 @@ def compute_projections(frame: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 # Full-frame analysis pipeline
 # ---------------------------------------------------------------------------
 
-def analyze_frame(frame: np.ndarray, *, do_fit: bool = True) -> BeamParameters:
+def _apply_calibration(
+    fit: FitResult,
+    calibration: "Calibration",
+) -> FitResult:
+    """Return a new :class:`FitResult` with calibrated µm fields populated."""
+    if not fit.success or not calibration.is_calibrated:
+        return fit
+    from dataclasses import replace
+    return replace(
+        fit,
+        sigma_um=calibration.pixel_to_um(fit.sigma),
+        centroid_um=calibration.pixel_to_um(fit.centroid),
+        unit_label=calibration.unit_label,
+    )
+
+
+def analyze_frame(
+    frame: np.ndarray,
+    *,
+    do_fit: bool = True,
+    calibration: Optional["Calibration"] = None,
+) -> BeamParameters:
     """Run the full analysis pipeline on a single frame.
 
     1. Compute X / Y projections
     2. Optionally fit each projection to a Gaussian
+    3. If *calibration* is provided, apply µm conversion to fit results
 
     Returns a :class:`BeamParameters` snapshot.
     """
@@ -205,6 +239,10 @@ def analyze_frame(frame: np.ndarray, *, do_fit: bool = True) -> BeamParameters:
         y_axis = np.arange(frame.shape[0], dtype=np.float64)
         x_fit = fit_gaussian_1d(x_axis, x_proj)
         y_fit = fit_gaussian_1d(y_axis, y_proj)
+
+        if calibration is not None:
+            x_fit = _apply_calibration(x_fit, calibration)
+            y_fit = _apply_calibration(y_fit, calibration)
 
     return BeamParameters(
         x_projection=x_proj,
