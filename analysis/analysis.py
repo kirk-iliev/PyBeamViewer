@@ -67,6 +67,16 @@ def gaussian_1d(
     return amplitude * np.exp(-0.5 * ((x - centroid) / sigma) ** 2) + offset
 
 
+def _gauss1(x: np.ndarray, a: float, b: float, c: float) -> np.ndarray:
+    """MATLAB ``gauss1`` model: a · exp(−((x − b) / c)²).
+
+    Relation to standard Gaussian: σ = |c| / √2.
+    Used internally by :func:`fit_gaussian_1d` to match the MATLAB
+    ``beam_fit_gaussian`` fitting convention exactly.
+    """
+    return a * np.exp(-((x - b) / c) ** 2)
+
+
 # ---------------------------------------------------------------------------
 # Initial-parameter estimation
 # ---------------------------------------------------------------------------
@@ -104,11 +114,27 @@ def _estimate_gaussian_params(
 
 
 # ---------------------------------------------------------------------------
-# Gaussian fit (mirrors MATLAB beam_fit_gaussian)
+# Gaussian fit
 # ---------------------------------------------------------------------------
 
 def fit_gaussian_1d(x_data: np.ndarray, y_data: np.ndarray) -> FitResult:
     """Fit a 1-D Gaussian to *x_data*, *y_data*.
+
+    Mirrors the MATLAB ``beam_fit_gaussian`` pipeline exactly:
+
+    1. **Fixed offset** — ``Offsethat = min(y)``, subtracted before fitting
+       and *not* a free parameter.  This matches MATLAB's pre-subtraction
+       convention rather than floating the baseline in the optimizer.
+    2. **Quarter-max threshold** — only pixels where
+       ``y_shifted > peak / 4`` are passed to the optimizer
+       (``x_reduced = find(y > ymax/4)`` in MATLAB).  This restricts the
+       fit to the Gaussian *core*, excluding scatter / diffraction tails
+       that are not part of the true beam distribution.
+    3. **3-parameter ``gauss1`` model** — ``a · exp(−((x−b)/c)²)`` fitted
+       on the thresholded data only, matching MATLAB's ``fit(..., 'gauss1')``.
+    4. **Sigma extraction** — ``σ = |c| / √2`` (MATLAB: ``f.c1/sqrt(2)``).
+    5. **Full-range curve** — the fitted curve is evaluated over the
+       *complete* x range with the fixed offset restored, for display.
 
     Returns a :class:`FitResult` with ``success=True`` on a good fit, or
     ``success=False`` with NaN-filled fields on failure.
@@ -120,47 +146,82 @@ def fit_gaussian_1d(x_data: np.ndarray, y_data: np.ndarray) -> FitResult:
         if len(x) < 4 or len(y) < 4:
             raise ValueError("Not enough data points for Gaussian fit")
 
-        amp0, cen0, sig0, off0 = _estimate_gaussian_params(x, y)
+        # --- Step 1: fixed offset (MATLAB: Offsethat = min(y)) -------------
+        offset = float(np.min(y))
+        y_shifted = y - offset
+        ymax = float(np.max(y_shifted))
 
-        # Guard: flat signal — nothing to fit.
-        y_range = float(np.max(y) - np.min(y))
-        if y_range == 0:
+        if ymax <= 0:
             raise ValueError("Flat signal — no feature to fit")
 
-        # Guard: near-delta spike (hot pixel).  When the estimated sigma is
-        # sub-pixel (< 1.0) the projection is essentially a δ-function;
-        # curve_fit will spin through thousands of evaluations trying to
-        # shrink sigma to zero against a hard lower bound and never converge
-        # cleanly.  Bail out immediately in this case.
+        # --- Step 2: quarter-max threshold ----------------------------------
+        # MATLAB: x_reduced = find(y > ymax/4)
+        mask = y_shifted > ymax / 4.0
+        n_core = int(mask.sum())
+        if n_core < 4:
+            raise ValueError(
+                f"Only {n_core} points above quarter-max threshold — "
+                "signal too narrow or noisy"
+            )
+
+        x_core = x[mask]
+        y_core = y_shifted[mask]
+
+        # --- Initial parameter estimates (on core data) --------------------
+        amp0 = ymax
+
+        # Intensity-weighted centroid from core points
+        total = float(np.sum(y_core))
+        cen0 = (
+            float(np.sum(x_core * y_core) / total)
+            if total > 0
+            else float(x_core[len(x_core) // 2])
+        )
+
+        # FWHM-based sigma from the full shifted signal (not just the core)
+        half_max = ymax / 2.0
+        above_half = np.where(y_shifted >= half_max)[0]
+        if len(above_half) >= 2:
+            fwhm = float(x[above_half[-1]] - x[above_half[0]])
+            sig0 = fwhm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
+        else:
+            sig0 = float((x_core[-1] - x_core[0]) / 2.0)
+        if sig0 <= 0:
+            sig0 = 1.0
+
+        # Guard: sub-pixel sigma estimate → hot-pixel / δ-spike
         if sig0 < 1.0:
             raise ValueError(
                 f"Estimated sigma ({sig0:.3f} px) is sub-pixel — "
                 "likely a hot-pixel spike; skipping fit"
             )
 
-        x_range = float(x[-1] - x[0]) if len(x) > 1 else 1.0
-        bounds = (
-            [0.0, float(x[0]) - x_range, 1e-6, -np.inf],
-            [np.inf, float(x[-1]) + x_range, x_range, np.inf],
-        )
+        # Convert to gauss1 c parameter: c = σ · √2
+        c0 = sig0 * np.sqrt(2.0)
 
+        # --- Step 3: 3-parameter gauss1 fit on core data -------------------
+        # MATLAB: f = fit(x(x_reduced), y(x_reduced), 'gauss1')
         popt, _ = curve_fit(
-            gaussian_1d,
-            x,
-            y,
-            p0=[amp0, cen0, sig0, off0],
-            bounds=bounds,
+            _gauss1,
+            x_core,
+            y_core,
+            p0=[amp0, cen0, c0],
             maxfev=2000,
         )
+        a_fit, b_fit, c_fit = popt
 
-        amplitude, centroid, sigma, offset = popt
-        fitted = gaussian_1d(x, *popt)
+        # --- Step 4: extract sigma (MATLAB: Sigmahat = f.c1/sqrt(2)) -------
+        sigma = abs(c_fit) / np.sqrt(2.0)
+
+        # --- Step 5: reconstruct full curve with offset restored -----------
+        # MATLAB: yhat = f.a1 * exp(-((x-f.b1)/f.c1)^2) + Offsethat
+        fitted = _gauss1(x, a_fit, b_fit, c_fit) + offset
         residual = float(np.sqrt(np.mean((y - fitted) ** 2)))
 
         return FitResult(
-            sigma=abs(sigma),
-            centroid=centroid,
-            amplitude=amplitude,
+            sigma=sigma,
+            centroid=b_fit,
+            amplitude=a_fit,
             offset=offset,
             fitted_curve=fitted,
             residual=residual,
