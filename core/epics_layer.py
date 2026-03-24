@@ -10,12 +10,15 @@ Hybrid implementation:
 
 from __future__ import annotations
 
+import logging
 import os
 import select
 import socket
 import threading
 import time
 from typing import Any, List, Optional, Tuple
+
+log = logging.getLogger(__name__)
 
 import caproto as ca
 import numpy as np
@@ -117,6 +120,36 @@ def open_channel_safe_socket(
 
 
 # ---------------------------------------------------------------------------
+# Shared native-mode Context (created once, reused for all one-shot calls)
+# ---------------------------------------------------------------------------
+
+_native_ctx: Optional[Context] = None
+_native_ctx_lock = threading.Lock()
+
+
+def _get_native_ctx() -> Context:
+    """Return the module-level singleton Context, creating it on first call."""
+    global _native_ctx
+    if _native_ctx is None:
+        with _native_ctx_lock:
+            if _native_ctx is None:          # double-checked locking
+                _native_ctx = Context()
+    return _native_ctx
+
+
+def shutdown_native_ctx() -> None:
+    """Disconnect the shared Context on application exit."""
+    global _native_ctx
+    with _native_ctx_lock:
+        if _native_ctx is not None:
+            try:
+                _native_ctx.disconnect()
+            except Exception:
+                pass
+            _native_ctx = None
+
+
+# ---------------------------------------------------------------------------
 # One-shot API
 # ---------------------------------------------------------------------------
 
@@ -138,17 +171,12 @@ def epics_get(host: str, port: int, pv_name: str, timeout: float = 5.0):
         finally:
             sock.close()
     else:
-        # Native Mode
-        #os.environ.pop("EPICS_CA_ADDR_LIST", None)
-        #os.environ.pop("EPICS_CA_AUTO_ADDR_LIST", None)
-        ctx = Context()
-        try:
-            pv, = ctx.get_pvs(pv_name)
-            pv.wait_for_connection(timeout=timeout)
-            response = pv.read(timeout=timeout)
-            return response.data
-        finally:
-            ctx.disconnect()
+        # Native Mode — reuse the shared long-lived Context
+        ctx = _get_native_ctx()
+        pv, = ctx.get_pvs(pv_name)
+        pv.wait_for_connection(timeout=timeout)
+        response = pv.read(timeout=timeout)
+        return response.data
 
 
 def epics_put(host: str, port: int, pv_name: str, value, timeout: float = 5.0) -> None:
@@ -171,16 +199,11 @@ def epics_put(host: str, port: int, pv_name: str, value, timeout: float = 5.0) -
         finally:
             sock.close()
     else:
-        # Native Mode
-        #os.environ.pop("EPICS_CA_ADDR_LIST", None)
-        #os.environ.pop("EPICS_CA_AUTO_ADDR_LIST", None)
-        ctx = Context()
-        try:
-            pv, = ctx.get_pvs(pv_name)
-            pv.wait_for_connection(timeout=timeout)
-            pv.write(value, wait=True, timeout=timeout)
-        finally:
-            ctx.disconnect()
+        # Native Mode — reuse the shared long-lived Context
+        ctx = _get_native_ctx()
+        pv, = ctx.get_pvs(pv_name)
+        pv.wait_for_connection(timeout=timeout)
+        pv.write(value, wait=True, timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +240,12 @@ class EpicsWorker(QThread):
 
     def stop(self) -> None:
         self._stop_event.set()
-        self.wait()
+        if not self.wait(5000):
+            log.warning("EpicsWorker did not finish within 5 s.")
+
+    def request_stop(self) -> None:
+        """Signal the worker to stop without blocking for completion."""
+        self._stop_event.set()
 
     def run(self) -> None:
         if self.host:
@@ -246,7 +274,7 @@ class EpicsWorker(QThread):
             pv_map = {pv.name: pv for pv in pvs}
             img_pv = pv_map[self.image_pv]
 
-            print(f"[Native Mode] Waiting for connection to {self.image_pv}...")
+            log.info("[Native Mode] Waiting for connection to %s ...", self.image_pv)
             while not self._stop_event.is_set():
                 try:
                     img_pv.wait_for_connection(timeout=1.0)
@@ -304,7 +332,7 @@ class EpicsWorker(QThread):
         while not self._stop_event.is_set():
             sock: Optional[socket.socket] = None
             try:
-                print(f"[Tunnel Mode] Connecting to {self.host}:{self.port} ...")
+                log.info("[Tunnel Mode] Connecting to %s:%d ...", self.host, self.port)
                 sock, circuit = connect_epics_socket(self.host, self.port)
                 attempt = 0
                 self.connection_changed.emit(True)
@@ -359,20 +387,27 @@ class EpicsWorker(QThread):
         if self._width is not None and self._height is not None:
             expected = self._width * self._height
             if raw.size >= expected:
-                #print(f"DEBUG: Using provided shape ({self._width}x{self._height}) for {raw.size} pixels")
                 return raw[:expected].reshape((self._height, self._width))
+            log.warning(
+                "Frame has %d pixels but expected %d (%dx%d) — trying fallback.",
+                raw.size, expected, self._width, self._height,
+            )
 
         if self.fallback_shape is not None:
             h, w = self.fallback_shape
             expected = h * w
             if raw.size >= expected:
-                #print(f"DEBUG: Using fallback shape ({w}x{h}) for {raw.size} pixels")
                 return raw[:expected].reshape((h, w))
+            log.warning(
+                "Frame has %d pixels, cannot reshape to fallback %s.",
+                raw.size, self.fallback_shape,
+            )
             return None
 
         n = raw.size
         side = int(n ** 0.5)
         if side * side == n:
-            #print(f"DEBUG: Inferring square shape ({side}x{side}) from {n} pixels")
             return raw[:n].reshape((side, side))
+
+        log.warning("Cannot reshape %d-pixel frame (no dimensions available).", raw.size)
         return None

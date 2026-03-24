@@ -19,12 +19,15 @@ logic inherently single-threaded and free of race conditions.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 
 import numpy as np
 import pyqtgraph as pg
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
+
+log = logging.getLogger(__name__)
 
 from analysis.analysis_worker import AnalysisWorker
 from analysis.calibration import load_calibration
@@ -119,11 +122,11 @@ class BeamController(QObject):
             get_active_prefix(),
         )
         # Set initial colormap from config
-        idx = self.gui.colormap_combo.findText(state.colormap_name)
+        idx = self.gui.control_panel.colormap_combo.findText(state.colormap_name)
         if idx >= 0:
-            self.gui.colormap_combo.blockSignals(True)
-            self.gui.colormap_combo.setCurrentIndex(idx)
-            self.gui.colormap_combo.blockSignals(False)
+            self.gui.control_panel.colormap_combo.blockSignals(True)
+            self.gui.control_panel.colormap_combo.setCurrentIndex(idx)
+            self.gui.control_panel.colormap_combo.blockSignals(False)
         self._on_colormap_changed(state.colormap_name)
 
     # ------------------------------------------------------------------
@@ -150,8 +153,13 @@ class BeamController(QObject):
 
     def stop(self) -> None:
         """Gracefully shut down both worker threads."""
-        self._epics_worker.stop()
+        self._epics_worker.request_stop()
         self._analysis_worker.stop()
+        # Give the EPICS worker a bounded wait after the analysis worker is done
+        if not self._epics_worker.wait(5000):
+            log.warning("EPICS worker did not stop within 5 s — terminating.")
+            self._epics_worker.terminate()
+            self._epics_worker.wait(2000)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -187,7 +195,7 @@ class BeamController(QObject):
             path = save_background_to_file(self._active_prefix, frame)
             set_active_background_path(self._active_prefix, path)
             self._refresh_bg_file_list()
-            print("Background frame captured.")
+            log.info("Background frame captured.")
 
         # --- Background subtraction ---
         bg = self.state.background_frame
@@ -201,9 +209,10 @@ class BeamController(QObject):
                 ).astype(frame.dtype)
                 frame = subtracted
             else:
-                print(
-                    f"[BG Sub] Shape mismatch: frame {frame.shape} vs background {bg.shape}. "
-                    "Skipping subtraction."
+                log.warning(
+                    "Background subtraction shape mismatch: frame %s vs background %s — "
+                    "subtraction skipped for this frame.",
+                    frame.shape, bg.shape,
                 )
 
         count = self.state.increment_frame_count()
@@ -223,12 +232,11 @@ class BeamController(QObject):
     @pyqtSlot(bool)
     def _on_connection_changed(self, connected: bool) -> None:
         self.state.connected = connected
-        status = "connected" if connected else "disconnected"
-        print(f"EPICS {status}")
+        log.info("EPICS %s", "connected" if connected else "disconnected")
 
     @pyqtSlot(str)
     def _on_error(self, message: str) -> None:
-        print(f"[Controller] {message}")
+        log.error("%s", message)
 
     # ------------------------------------------------------------------
     # Control panel slots
@@ -236,7 +244,7 @@ class BeamController(QObject):
 
     def _on_prefix_change(self, prefix: str) -> None:
         """Switch to a different camera PV prefix."""
-        print(f"Switching to prefix: {prefix}")
+        log.info("Switching to prefix: %s", prefix)
 
         old_prefix = self._active_prefix
 
@@ -252,24 +260,14 @@ class BeamController(QObject):
         self._active_prefix = prefix
 
         pv_names = get_pv_names(prefix)
-        self.state.image_pv = pv_names["image_pv"]
-        self.state.width_pv = pv_names["width_pv"]
-        self.state.height_pv = pv_names["height_pv"]
-        self.state.exposure_pv = pv_names.get("exposure_pv", "")
-        self.state.exposure_rbv_pv = pv_names.get("exposure_rbv_pv", "")
-        self.state.gain_pv = pv_names.get("gain_pv", "")
-        self.state.gain_rbv_pv = pv_names.get("gain_rbv_pv", "")
-        _fs = pv_names.get("fallback_shape")
-        self.state.fallback_shape = (
-            (int(_fs[0]), int(_fs[1])) if _fs is not None else None
-        )
+        self.state.update_connection_config(pv_names)
 
         self._epics_worker = EpicsWorker(
             host=self.state.host,
             port=self.state.port,
-            image_pv=self.state.image_pv,
-            width_pv=self.state.width_pv,
-            height_pv=self.state.height_pv,
+            image_pv=pv_names["image_pv"],
+            width_pv=pv_names["width_pv"],
+            height_pv=pv_names["height_pv"],
             fallback_shape=self.state.fallback_shape,
         )
         self._connect_epics_signals()
@@ -297,13 +295,13 @@ class BeamController(QObject):
                     data = epics_get(host, port, exp_pv)
                     self._exposure_rbv_updated.emit(float(data[0]))
                 except Exception as exc:
-                    print(f"Failed to read exposure RBV: {exc}")
+                    log.warning("Failed to read exposure RBV: %s", exc)
             if gain_pv:
                 try:
                     data = epics_get(host, port, gain_pv)
                     self._gain_rbv_updated.emit(int(data[0]))
                 except Exception as exc:
-                    print(f"Failed to read gain RBV: {exc}")
+                    log.warning("Failed to read gain RBV: %s", exc)
 
         threading.Thread(target=_read, daemon=True).start()
 
@@ -323,7 +321,7 @@ class BeamController(QObject):
                     data = epics_get(host, port, rbv_pv)
                     self._exposure_rbv_updated.emit(float(data[0]))
             except Exception as exc:
-                print(f"Failed to set exposure: {exc}")
+                log.error("Failed to set exposure: %s", exc)
                 self._exposure_rbv_reverted.emit()
 
         threading.Thread(target=_write, daemon=True).start()
@@ -344,7 +342,7 @@ class BeamController(QObject):
                     data = epics_get(host, port, rbv_pv)
                     self._gain_rbv_updated.emit(int(data[0]))
             except Exception as exc:
-                print(f"Failed to set gain: {exc}")
+                log.error("Failed to set gain: %s", exc)
                 self._gain_rbv_reverted.emit()
 
         threading.Thread(target=_write, daemon=True).start()
@@ -352,14 +350,13 @@ class BeamController(QObject):
     def _on_streaming_toggled(self, streaming: bool) -> None:
         """Pause or resume frame forwarding (EPICS worker keeps running)."""
         self._streaming = streaming
-        status = "resumed" if streaming else "paused"
-        print(f"Streaming {status}")
+        log.info("Streaming %s", "resumed" if streaming else "paused")
 
     @pyqtSlot()
     def _on_acquire_background_requested(self) -> None:
         """Flag that the next incoming frame should be stored as the background."""
         self._acquire_next_frame = True
-        print("Background acquisition requested — will capture on next frame.")
+        log.info("Background acquisition requested — will capture on next frame.")
 
     @pyqtSlot(bool)
     def _on_bg_subtraction_toggled(self, enabled: bool) -> None:
@@ -369,7 +366,7 @@ class BeamController(QObject):
         has_bg = self.state.background_frame is not None
         # Update status label to reflect new toggle state
         self.gui.set_bg_status(has_bg=has_bg, sub_enabled=enabled)
-        print(f"Background subtraction {'enabled' if enabled else 'disabled'}.")
+        log.info("Background subtraction %s.", "enabled" if enabled else "disabled")
 
     @pyqtSlot()
     def _on_save_background_requested(self) -> None:
@@ -380,7 +377,7 @@ class BeamController(QObject):
         path = save_background_to_file(self._active_prefix, bg)
         set_active_background_path(self._active_prefix, path)
         self._refresh_bg_file_list()
-        print(f"Background saved to {path}")
+        log.info("Background saved to %s", path)
 
     @pyqtSlot(str)
     def _on_load_background_requested(self, path_str: str) -> None:
@@ -388,7 +385,7 @@ class BeamController(QObject):
         from pathlib import Path
         path = Path(path_str)
         if not path.exists():
-            print(f"[BG Load] File not found: {path}")
+            log.warning("Background file not found: %s", path)
             return
         bg = load_background_from_file(path)
         self.state.background_frame = bg
@@ -397,7 +394,7 @@ class BeamController(QObject):
         self.state.store_bg_enabled_for_prefix(self._active_prefix, True)
         set_active_background_path(self._active_prefix, path)
         self.gui.set_bg_status(has_bg=True, sub_enabled=True)
-        print(f"Background loaded from {path.name}")
+        log.info("Background loaded from %s", path.name)
 
     # ------------------------------------------------------------------
     # Background persistence helpers
@@ -415,7 +412,7 @@ class BeamController(QObject):
                     bg = load_background_from_file(active_path)
                     self.state.store_background_for_prefix(prefix, bg)
                 except Exception as exc:
-                    print(f"[BG Restore] Failed to load {active_path}: {exc}")
+                    log.warning("Failed to restore background %s: %s", active_path, exc)
 
         if bg is not None:
             self.state.background_frame = bg
@@ -437,7 +434,7 @@ class BeamController(QObject):
     def _on_fit_full_toggled(self, enabled: bool) -> None:
         """Enable or disable Gaussian fitting on the full image."""
         self._fit_full = enabled
-        print(f"Full-image fitting {'enabled' if enabled else 'disabled'}")
+        log.info("Full-image fitting %s", "enabled" if enabled else "disabled")
 
     def _on_colormap_changed(self, name: str) -> None:
         """Apply a new colormap to both image panes."""
@@ -447,7 +444,7 @@ class BeamController(QObject):
             self.gui.image_pane_1.image_item.setLookupTable(lut)
             self.gui.image_pane_2.image_item.setLookupTable(lut)
         except Exception as exc:
-            print(f"Failed to set colormap '{name}': {exc}")
+            log.warning("Failed to set colormap '%s': %s", name, exc)
 
     @pyqtSlot(object)
     def _on_roi_changed(self, roi: object) -> None:

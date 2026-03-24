@@ -8,11 +8,14 @@ so state can be safely read/written from any thread.
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 from analysis.analysis import BeamParameters
 from config.config import get_epics_connection, get_pv_names, get_display_settings
@@ -162,3 +165,24 @@ class AppState:
         """Return whether subtraction was enabled for *prefix*."""
         with self._lock:
             return self._bg_enabled_map.get(prefix, False)
+
+    # -- bulk PV config update (lock-protected) -----------------------------
+
+    def update_connection_config(self, pv_names: dict) -> None:
+        """Update all PV-related attributes atomically under the lock.
+
+        Called during a prefix switch so no thread can read partially
+        updated state.
+        """
+        with self._lock:
+            self.image_pv = pv_names["image_pv"]
+            self.width_pv = pv_names["width_pv"]
+            self.height_pv = pv_names["height_pv"]
+            self.exposure_pv = pv_names.get("exposure_pv", "")
+            self.exposure_rbv_pv = pv_names.get("exposure_rbv_pv", "")
+            self.gain_pv = pv_names.get("gain_pv", "")
+            self.gain_rbv_pv = pv_names.get("gain_rbv_pv", "")
+            _fs = pv_names.get("fallback_shape")
+            self.fallback_shape = (
+                (int(_fs[0]), int(_fs[1])) if _fs is not None else None
+            )

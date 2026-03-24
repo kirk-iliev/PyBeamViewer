@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import threading
 import time
+from contextlib import contextmanager
+from dataclasses import replace
 from typing import Optional
 
 import numpy as np
@@ -52,6 +54,18 @@ from .image_pane import ImagePane
 from .overlay_state import OverlayState
 from .projection_plot import ProjectionPlot
 from .theme import DARK, LIGHT, Theme, _MONO
+
+
+@contextmanager
+def _block_signals(*widgets):
+    """Block Qt signals on *widgets* for the duration of the context."""
+    for w in widgets:
+        w.blockSignals(True)
+    try:
+        yield
+    finally:
+        for w in widgets:
+            w.blockSignals(False)
 
 
 class BeamViewerWindow(QMainWindow):
@@ -170,44 +184,16 @@ class BeamViewerWindow(QMainWindow):
         self.control_panel = ControlPanel(self._theme)
         outer.addWidget(self.control_panel)
 
-        # Convenience aliases — keeps the rest of the window (and the
-        # controller's attribute access) unchanged.
-        cp = self.control_panel
-        self.prefix_combo = cp.prefix_combo
-        self.exposure_input = cp.exposure_input
-        self.exposure_set_btn = cp.exposure_set_btn
-        self.gain_input = cp.gain_input
-        self.gain_set_btn = cp.gain_set_btn
-        self.camera_status_label = cp.camera_status_label
-        self.stream_btn = cp.stream_btn
-        self.acquire_bg_btn = cp.acquire_bg_btn
-        self.bg_subtract_btn = cp.bg_subtract_btn
-        self.bg_status_label = cp.bg_status_label
-        self.save_bg_btn = cp.save_bg_btn
-        self.load_bg_btn = cp.load_bg_btn
-        self.fit_full_btn = cp.fit_full_btn
-        self.fit_roi_btn = cp.fit_roi_btn
-        self.clear_roi_btn = cp.clear_roi_btn
-        self.center_roi_btn = cp.center_roi_btn
-        self.colormap_combo = cp.colormap_combo
-        self.h_overlay_btn = cp.h_overlay_btn
-        self.h_overlay_side = cp.h_overlay_side
-        self.v_overlay_btn = cp.v_overlay_btn
-        self.v_overlay_side = cp.v_overlay_side
-        self.overlay_scale_slider = cp.overlay_scale_slider
-        self.overlay_scale_label = cp.overlay_scale_label
-        self.overlay_show_full_btn = cp.overlay_show_full_btn
-        self.overlay_show_roi_btn = cp.overlay_show_roi_btn
 
         self._wire_control_signals()
 
         # Track last confirmed RBV values so spinboxes can be reverted
-        self._last_confirmed_exposure: float = self.exposure_input.value()
-        self._last_confirmed_gain: int = self.gain_input.value()
+        self._last_confirmed_exposure: float = self.control_panel.exposure_input.value()
+        self._last_confirmed_gain: int = self.control_panel.gain_input.value()
 
         # Escape key on either spinbox reverts to last confirmed value
-        self.exposure_input.installEventFilter(self)
-        self.gain_input.installEventFilter(self)
+        self.control_panel.exposure_input.installEventFilter(self)
+        self.control_panel.gain_input.installEventFilter(self)
 
         outer.setStretchFactor(0, 5)
         outer.setStretchFactor(1, 1)
@@ -231,46 +217,47 @@ class BeamViewerWindow(QMainWindow):
 
     def _wire_control_signals(self) -> None:
         """Connect control-panel widget signals to window signals/slots."""
-        self.prefix_combo.currentTextChanged.connect(
+        cp = self.control_panel
+        cp.prefix_combo.currentTextChanged.connect(
             self.prefix_change_requested.emit,
         )
-        self.exposure_input.valueChanged.connect(
-            lambda _: self._mark_spinbox_pending(self.exposure_input),
+        cp.exposure_input.valueChanged.connect(
+            lambda _: self._mark_spinbox_pending(cp.exposure_input),
         )
-        self.gain_input.valueChanged.connect(
-            lambda _: self._mark_spinbox_pending(self.gain_input),
+        cp.gain_input.valueChanged.connect(
+            lambda _: self._mark_spinbox_pending(cp.gain_input),
         )
-        self.exposure_set_btn.clicked.connect(
-            lambda: self.exposure_set_requested.emit(self.exposure_input.value()),
+        cp.exposure_set_btn.clicked.connect(
+            lambda: self.exposure_set_requested.emit(cp.exposure_input.value()),
         )
-        self.gain_set_btn.clicked.connect(
-            lambda: self.gain_set_requested.emit(self.gain_input.value()),
+        cp.gain_set_btn.clicked.connect(
+            lambda: self.gain_set_requested.emit(cp.gain_input.value()),
         )
-        self.stream_btn.toggled.connect(self._on_stream_toggled)
-        self.fit_full_btn.toggled.connect(self._on_fit_full_toggled)
-        self.fit_roi_btn.toggled.connect(self._on_fit_roi_toggled)
-        self.clear_roi_btn.clicked.connect(self._on_clear_roi_clicked)
-        self.center_roi_btn.clicked.connect(self._on_center_roi_clicked)
-        self.colormap_combo.currentTextChanged.connect(
+        cp.stream_btn.toggled.connect(self._on_stream_toggled)
+        cp.fit_full_btn.toggled.connect(self._on_fit_full_toggled)
+        cp.fit_roi_btn.toggled.connect(self._on_fit_roi_toggled)
+        cp.clear_roi_btn.clicked.connect(self._on_clear_roi_clicked)
+        cp.center_roi_btn.clicked.connect(self._on_center_roi_clicked)
+        cp.colormap_combo.currentTextChanged.connect(
             self.colormap_changed.emit,
         )
-        self.acquire_bg_btn.clicked.connect(self.acquire_background_requested.emit)
-        self.bg_subtract_btn.toggled.connect(self._on_bg_subtraction_toggled)
-        self.save_bg_btn.clicked.connect(self.save_background_requested.emit)
-        self.load_bg_btn.clicked.connect(self._on_load_bg_clicked)
+        cp.acquire_bg_btn.clicked.connect(self.acquire_background_requested.emit)
+        cp.bg_subtract_btn.toggled.connect(self._on_bg_subtraction_toggled)
+        cp.save_bg_btn.clicked.connect(self.save_background_requested.emit)
+        cp.load_bg_btn.clicked.connect(self._on_load_bg_clicked)
 
         # Overlay controls
-        self.h_overlay_btn.toggled.connect(self._on_overlay_changed)
-        self.h_overlay_side.currentTextChanged.connect(
+        cp.h_overlay_btn.toggled.connect(self._on_overlay_changed)
+        cp.h_overlay_side.currentTextChanged.connect(
             lambda _: self._on_overlay_changed(),
         )
-        self.v_overlay_btn.toggled.connect(self._on_overlay_changed)
-        self.v_overlay_side.currentTextChanged.connect(
+        cp.v_overlay_btn.toggled.connect(self._on_overlay_changed)
+        cp.v_overlay_side.currentTextChanged.connect(
             lambda _: self._on_overlay_changed(),
         )
-        self.overlay_scale_slider.valueChanged.connect(self._on_overlay_scale_changed)
-        self.overlay_show_full_btn.toggled.connect(self._on_overlay_changed)
-        self.overlay_show_roi_btn.toggled.connect(self._on_overlay_changed)
+        cp.overlay_scale_slider.valueChanged.connect(self._on_overlay_scale_changed)
+        cp.overlay_show_full_btn.toggled.connect(self._on_overlay_changed)
+        cp.overlay_show_roi_btn.toggled.connect(self._on_overlay_changed)
 
     # ------------------------------------------------------------------
     # Theme toggle
@@ -306,14 +293,11 @@ class BeamViewerWindow(QMainWindow):
         for pane in (self.image_pane_1, self.image_pane_2):
             pane.apply_theme(theme)
 
-        # Control panel: style labels
-        for grp in self.control_panel.findChildren(QGroupBox):
-            for lbl in grp.findChildren(QLabel):
-                lbl.setStyleSheet(f"color: {theme.text_dim}; font-size: 12px;")
+        self.control_panel.apply_theme(theme)
 
         # Refresh bg status label colour with new theme colours
-        has_bg = self.bg_status_label.property("has_bg") or False
-        sub_on = self.bg_subtract_btn.isChecked()
+        has_bg = self.control_panel.bg_status_label.property("has_bg") or False
+        sub_on = self.control_panel.bg_subtract_btn.isChecked()
         self._update_bg_status_label(has_bg, sub_on)
 
     # ------------------------------------------------------------------
@@ -323,56 +307,60 @@ class BeamViewerWindow(QMainWindow):
     def _on_stream_toggled(self, checked: bool) -> None:
         """Update button text, color, and emit streaming signal."""
         if checked:
-            self.stream_btn.setText("Streaming")
+            self.control_panel.stream_btn.setText("Streaming")
             # Green background for streaming
-            self.stream_btn.setStyleSheet(
+            self.control_panel.stream_btn.setStyleSheet(
                 f"QPushButton {{ background-color: #2ecc71; color: #ffffff; font-weight: 600; }}"
             )
         else:
-            self.stream_btn.setText("Paused")
+            self.control_panel.stream_btn.setText("Paused")
             # Red background for paused
-            self.stream_btn.setStyleSheet(
+            self.control_panel.stream_btn.setStyleSheet(
                 f"QPushButton {{ background-color: #e74c3c; color: #ffffff; font-weight: 600; }}"
             )
         self.streaming_toggled.emit(checked)
 
     def _on_bg_subtraction_toggled(self, checked: bool) -> None:
-        self.bg_subtract_btn.setText(
+        self.control_panel.bg_subtract_btn.setText(
             "✓  Background Sub ON" if checked else "Background Sub OFF"
         )
         self.bg_subtraction_toggled.emit(checked)
         # Refresh the status label text to reflect the new state
-        has_bg = self.bg_status_label.property("has_bg") or False
+        has_bg = self.control_panel.bg_status_label.property("has_bg") or False
         self._update_bg_status_label(has_bg, checked)
 
     def _on_overlay_changed(self, _checked: bool = False) -> None:
         """Read the overlay controls, update state, refresh overlays, and emit."""
-        h_on = self.h_overlay_btn.isChecked()
-        v_on = self.v_overlay_btn.isChecked()
-        self.h_overlay_btn.setText("✓  H Overlay" if h_on else "H Overlay")
-        self.v_overlay_btn.setText("✓  V Overlay" if v_on else "V Overlay")
-        self.h_overlay_side.setEnabled(h_on)
-        self.v_overlay_side.setEnabled(v_on)
+        cp = self.control_panel
+        h_on = cp.h_overlay_btn.isChecked()
+        v_on = cp.v_overlay_btn.isChecked()
+        cp.h_overlay_btn.setText("✓  H Overlay" if h_on else "H Overlay")
+        cp.v_overlay_btn.setText("✓  V Overlay" if v_on else "V Overlay")
+        cp.h_overlay_side.setEnabled(h_on)
+        cp.v_overlay_side.setEnabled(v_on)
 
-        show_full = self.overlay_show_full_btn.isChecked()
-        show_roi = self.overlay_show_roi_btn.isChecked()
-        self.overlay_show_full_btn.setText("✓  Full" if show_full else "Full")
-        self.overlay_show_roi_btn.setText("✓  ROI" if show_roi else "ROI")
+        show_full = cp.overlay_show_full_btn.isChecked()
+        show_roi = cp.overlay_show_roi_btn.isChecked()
+        cp.overlay_show_full_btn.setText("✓  Full" if show_full else "Full")
+        cp.overlay_show_roi_btn.setText("✓  ROI" if show_roi else "ROI")
 
-        self._overlay_state.h_enabled = h_on
-        self._overlay_state.h_side = self.h_overlay_side.currentText().lower()
-        self._overlay_state.v_enabled = v_on
-        self._overlay_state.v_side = self.v_overlay_side.currentText().lower()
-        self._overlay_state.show_full = show_full
-        self._overlay_state.show_roi = show_roi
+        self._overlay_state = replace(
+            self._overlay_state,
+            h_enabled=h_on,
+            h_side=cp.h_overlay_side.currentText().lower(),
+            v_enabled=v_on,
+            v_side=cp.v_overlay_side.currentText().lower(),
+            show_full=show_full,
+            show_roi=show_roi,
+        )
 
         self._refresh_overlays()
         self.overlay_settings_changed.emit(self._overlay_state)
 
     def _on_overlay_scale_changed(self, value: int) -> None:
         """Update overlay scale from the slider (5–50 → 0.05–0.50)."""
-        self._overlay_state.scale = value / 100.0
-        self.overlay_scale_label.setText(f"{value}%")
+        self._overlay_state = replace(self._overlay_state, scale=value / 100.0)
+        self.control_panel.overlay_scale_label.setText(f"{value}%")
         self._refresh_overlays()
         self.overlay_settings_changed.emit(self._overlay_state)
 
@@ -409,13 +397,13 @@ class BeamViewerWindow(QMainWindow):
             self.image_pane_2.clear_projections()
 
     def _on_fit_full_toggled(self, checked: bool) -> None:
-        self.fit_full_btn.setText(
+        self.control_panel.fit_full_btn.setText(
             "✓  Fit Full Image" if checked else "Fit Full Image"
         )
         self.fit_full_toggled.emit(checked)
 
     def _on_fit_roi_toggled(self, checked: bool) -> None:
-        self.fit_roi_btn.setText(
+        self.control_panel.fit_roi_btn.setText(
             "✓  Fit ROI" if checked else "Fit ROI"
         )
         # ROI fitting is handled entirely in the GUI; just refresh
@@ -476,9 +464,9 @@ class BeamViewerWindow(QMainWindow):
         else:
             text = "BG: acquired  |  Sub: OFF"
             style = f"color: {self._theme.text_dim}; font-size: 11px; font-family: {_MONO};"
-        self.bg_status_label.setText(text)
-        self.bg_status_label.setStyleSheet(style)
-        self.bg_status_label.setProperty("has_bg", has_bg)
+        self.control_panel.bg_status_label.setText(text)
+        self.control_panel.bg_status_label.setStyleSheet(style)
+        self.control_panel.bg_status_label.setProperty("has_bg", has_bg)
 
     def set_bg_status(self, has_bg: bool, sub_enabled: bool) -> None:
         """Called by the controller after background acquisition or toggle.
@@ -486,24 +474,22 @@ class BeamViewerWindow(QMainWindow):
         Enables/disables the subtraction toggle and updates the status label.
         Does NOT emit any signal (controller-driven update).
         """
-        self.bg_subtract_btn.setEnabled(has_bg)
-        self.save_bg_btn.setEnabled(has_bg)
-        self.bg_subtract_btn.blockSignals(True)
-        self.bg_subtract_btn.setChecked(sub_enabled)
-        self.bg_subtract_btn.setText(
-            "✓  Background Sub ON" if sub_enabled else "Background Sub OFF"
-        )
-        self.bg_subtract_btn.blockSignals(False)
+        self.control_panel.bg_subtract_btn.setEnabled(has_bg)
+        self.control_panel.save_bg_btn.setEnabled(has_bg)
+        with _block_signals(self.control_panel.bg_subtract_btn):
+            self.control_panel.bg_subtract_btn.setChecked(sub_enabled)
+            self.control_panel.bg_subtract_btn.setText(
+                "✓  Background Sub ON" if sub_enabled else "Background Sub OFF"
+            )
         self._update_bg_status_label(has_bg, sub_enabled)
 
     def reset_bg_controls(self) -> None:
         """Reset all background controls to their initial state (e.g. on camera switch)."""
-        self.bg_subtract_btn.blockSignals(True)
-        self.bg_subtract_btn.setChecked(False)
-        self.bg_subtract_btn.setText("Background Sub")
-        self.bg_subtract_btn.setEnabled(False)
-        self.bg_subtract_btn.blockSignals(False)
-        self.save_bg_btn.setEnabled(False)
+        with _block_signals(self.control_panel.bg_subtract_btn):
+            self.control_panel.bg_subtract_btn.setChecked(False)
+            self.control_panel.bg_subtract_btn.setText("Background Sub")
+            self.control_panel.bg_subtract_btn.setEnabled(False)
+        self.control_panel.save_bg_btn.setEnabled(False)
         self._update_bg_status_label(has_bg=False, sub_enabled=False)
 
     def _on_load_bg_clicked(self) -> None:
@@ -525,22 +511,21 @@ class BeamViewerWindow(QMainWindow):
 
     def set_available_prefixes(self, prefixes: list, active: str) -> None:
         """Populate the camera prefix dropdown without triggering signals."""
-        self.prefix_combo.blockSignals(True)
-        self.prefix_combo.clear()
-        self.prefix_combo.addItems(prefixes)
-        idx = self.prefix_combo.findText(active)
-        if idx >= 0:
-            self.prefix_combo.setCurrentIndex(idx)
-        self.prefix_combo.blockSignals(False)
+        with _block_signals(self.control_panel.prefix_combo):
+            self.control_panel.prefix_combo.clear()
+            self.control_panel.prefix_combo.addItems(prefixes)
+            idx = self.control_panel.prefix_combo.findText(active)
+            if idx >= 0:
+                self.control_panel.prefix_combo.setCurrentIndex(idx)
 
     def eventFilter(self, obj: object, event: QEvent) -> bool:  # type: ignore[override]
         """Revert spinbox to last confirmed RBV when Escape is pressed."""
         if event.type() == QEvent.KeyPress:
             if event.key() == Qt.Key_Escape:  # type: ignore[attr-defined]
-                if obj is self.exposure_input:
+                if obj is self.control_panel.exposure_input:
                     self.revert_exposure_spinbox()
                     return True
-                if obj is self.gain_input:
+                if obj is self.control_panel.gain_input:
                     self.revert_gain_spinbox()
                     return True
         return super().eventFilter(obj, event)
@@ -558,20 +543,18 @@ class BeamViewerWindow(QMainWindow):
     def set_exposure_rbv(self, value: float) -> None:
         """Update the exposure input to the confirmed RBV value and clear pending state."""
         self._last_confirmed_exposure = value
-        self.exposure_input.blockSignals(True)
-        self.exposure_input.setValue(value)
-        self.exposure_input.blockSignals(False)
-        self.exposure_input.setStyleSheet("")  # clear pending indicator
-        self.camera_status_label.setVisible(False)
+        with _block_signals(self.control_panel.exposure_input):
+            self.control_panel.exposure_input.setValue(value)
+        self.control_panel.exposure_input.setStyleSheet("")  # clear pending indicator
+        self.control_panel.camera_status_label.setVisible(False)
 
     def set_gain_rbv(self, value: int) -> None:
         """Update the gain input to the confirmed RBV value and clear pending state."""
         self._last_confirmed_gain = value
-        self.gain_input.blockSignals(True)
-        self.gain_input.setValue(value)
-        self.gain_input.blockSignals(False)
-        self.gain_input.setStyleSheet("")  # clear pending indicator
-        self.camera_status_label.setVisible(False)
+        with _block_signals(self.control_panel.gain_input):
+            self.control_panel.gain_input.setValue(value)
+        self.control_panel.gain_input.setStyleSheet("")  # clear pending indicator
+        self.control_panel.camera_status_label.setVisible(False)
 
     def _mark_spinbox_pending(self, widget: QWidget) -> None:
         """Apply an amber border to indicate a setpoint is pending confirmation."""
@@ -579,7 +562,7 @@ class BeamViewerWindow(QMainWindow):
         widget.setStyleSheet(
             f"{cls} {{ border: 1.5px solid #e8a020; border-radius: 4px; }}"
         )
-        self.camera_status_label.setVisible(True)
+        self.control_panel.camera_status_label.setVisible(True)
 
     # ------------------------------------------------------------------
     # Public API  (called by the controller on the main thread)
@@ -668,7 +651,7 @@ class BeamViewerWindow(QMainWindow):
     def _on_roi_changed(self, roi: object) -> None:
         """Called when the user draws a new ROI or clears the existing one."""
         self._set_roi_section_visible(roi is not None)
-        self.center_roi_btn.setEnabled(roi is not None)
+        self.control_panel.center_roi_btn.setEnabled(roi is not None)
         if roi is not None:
             self._update_roi()
             # Clear stale projections from a previous ROI when a new one is drawn
@@ -679,11 +662,10 @@ class BeamViewerWindow(QMainWindow):
 
     def restore_roi(self, roi: Optional[tuple]) -> None:
         """Silently restore a saved ROI (does not trigger save-to-config)."""
-        self.image_pane_1.blockSignals(True)
-        self.image_pane_1.set_roi(roi)
-        self.image_pane_1.blockSignals(False)
+        with _block_signals(self.image_pane_1):
+            self.image_pane_1.set_roi(roi)
         self._set_roi_section_visible(roi is not None)
-        self.center_roi_btn.setEnabled(roi is not None)
+        self.control_panel.center_roi_btn.setEnabled(roi is not None)
         if roi is not None and self._last_frame is not None:
             self._update_roi()
 
@@ -703,42 +685,31 @@ class BeamViewerWindow(QMainWindow):
     def restore_overlay_state(self, state: OverlayState) -> None:
         """Silently restore overlay settings without emitting signals."""
         self._overlay_state = state
-        # Update controls to match — block signals to avoid re-emission
-        self.h_overlay_btn.blockSignals(True)
-        self.h_overlay_btn.setChecked(state.h_enabled)
-        self.h_overlay_btn.setText("✓  H Overlay" if state.h_enabled else "H Overlay")
-        self.h_overlay_btn.blockSignals(False)
+        cp = self.control_panel
+        with _block_signals(
+            cp.h_overlay_btn, cp.h_overlay_side,
+            cp.v_overlay_btn, cp.v_overlay_side,
+            cp.overlay_scale_slider,
+            cp.overlay_show_full_btn, cp.overlay_show_roi_btn,
+        ):
+            cp.h_overlay_btn.setChecked(state.h_enabled)
+            cp.h_overlay_btn.setText("✓  H Overlay" if state.h_enabled else "H Overlay")
+            cp.h_overlay_side.setCurrentText(state.h_side.capitalize())
+            cp.h_overlay_side.setEnabled(state.h_enabled)
 
-        self.h_overlay_side.blockSignals(True)
-        self.h_overlay_side.setCurrentText(state.h_side.capitalize())
-        self.h_overlay_side.setEnabled(state.h_enabled)
-        self.h_overlay_side.blockSignals(False)
+            cp.v_overlay_btn.setChecked(state.v_enabled)
+            cp.v_overlay_btn.setText("✓  V Overlay" if state.v_enabled else "V Overlay")
+            cp.v_overlay_side.setCurrentText(state.v_side.capitalize())
+            cp.v_overlay_side.setEnabled(state.v_enabled)
 
-        self.v_overlay_btn.blockSignals(True)
-        self.v_overlay_btn.setChecked(state.v_enabled)
-        self.v_overlay_btn.setText("✓  V Overlay" if state.v_enabled else "V Overlay")
-        self.v_overlay_btn.blockSignals(False)
+            slider_val = max(5, min(50, int(state.scale * 100)))
+            cp.overlay_scale_slider.setValue(slider_val)
+            cp.overlay_scale_label.setText(f"{slider_val}%")
 
-        self.v_overlay_side.blockSignals(True)
-        self.v_overlay_side.setCurrentText(state.v_side.capitalize())
-        self.v_overlay_side.setEnabled(state.v_enabled)
-        self.v_overlay_side.blockSignals(False)
-
-        slider_val = max(5, min(50, int(state.scale * 100)))
-        self.overlay_scale_slider.blockSignals(True)
-        self.overlay_scale_slider.setValue(slider_val)
-        self.overlay_scale_slider.blockSignals(False)
-        self.overlay_scale_label.setText(f"{slider_val}%")
-
-        self.overlay_show_full_btn.blockSignals(True)
-        self.overlay_show_full_btn.setChecked(state.show_full)
-        self.overlay_show_full_btn.setText("✓  Full" if state.show_full else "Full")
-        self.overlay_show_full_btn.blockSignals(False)
-
-        self.overlay_show_roi_btn.blockSignals(True)
-        self.overlay_show_roi_btn.setChecked(state.show_roi)
-        self.overlay_show_roi_btn.setText("✓  ROI" if state.show_roi else "ROI")
-        self.overlay_show_roi_btn.blockSignals(False)
+            cp.overlay_show_full_btn.setChecked(state.show_full)
+            cp.overlay_show_full_btn.setText("✓  Full" if state.show_full else "Full")
+            cp.overlay_show_roi_btn.setChecked(state.show_roi)
+            cp.overlay_show_roi_btn.setText("✓  ROI" if state.show_roi else "ROI")
 
     def _update_roi(self) -> None:
         """Extract the ROI from the cached frame and refresh the bottom pane.
@@ -782,7 +753,7 @@ class BeamViewerWindow(QMainWindow):
         else:
             self.image_pane_2.clear_projections()
 
-        if not self.fit_roi_btn.isChecked():
+        if not self.control_panel.fit_roi_btn.isChecked():
             # Fitting is off — clear stats immediately and stop here.
             self.h_proj_2.clear_fit()
             self.v_proj_2.clear_fit()

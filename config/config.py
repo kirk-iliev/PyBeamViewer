@@ -8,11 +8,20 @@ simply change the 'active_prefix' field in config.json.
 from __future__ import annotations
 
 import json
+import logging
+import os
+import tempfile
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+
+log = logging.getLogger(__name__)
+
+# Module-level lock protects read-modify-write cycles on config.json
+_config_lock = threading.Lock()
 
 
 def _get_config_path() -> Path:
@@ -104,21 +113,40 @@ def get_active_prefix() -> str:
 # ROI persistence
 # ---------------------------------------------------------------------------
 
+def _atomic_write_config(config_path: Path, data: Dict[str, Any]) -> None:
+    """Write *data* to *config_path* atomically via a temp-file + rename."""
+    dir_fd = None
+    try:
+        fd, tmp = tempfile.mkstemp(
+            dir=str(config_path.parent), suffix=".tmp", prefix=".config_"
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f, indent=2)
+        except BaseException:
+            os.unlink(tmp)
+            raise
+        os.replace(tmp, str(config_path))
+    except Exception:
+        log.exception("Failed to write config atomically to %s", config_path)
+        raise
+
+
 def save_roi_for_prefix(prefix: str, roi: Optional[tuple]) -> None:
     """Persist the ROI ``(x0, y0, x1, y1)`` for *prefix* in config.json.
 
     Pass *roi=None* to remove a previously saved selection.
     """
-    config_path = _get_config_path()
-    config = load_config()
-    rois: Dict[str, Any] = config.setdefault("roi_selections", {})
-    if roi is None:
-        rois.pop(prefix, None)
-    else:
-        x0, y0, x1, y1 = roi
-        rois[prefix] = {"x0": x0, "y0": y0, "x1": x1, "y1": y1}
-    with open(config_path, "w") as f:
-        json.dump(config, f, indent=2)
+    with _config_lock:
+        config_path = _get_config_path()
+        config = load_config()
+        rois: Dict[str, Any] = config.setdefault("roi_selections", {})
+        if roi is None:
+            rois.pop(prefix, None)
+        else:
+            x0, y0, x1, y1 = roi
+            rois[prefix] = {"x0": x0, "y0": y0, "x1": x1, "y1": y1}
+        _atomic_write_config(config_path, config)
 
 
 def get_roi_for_prefix(prefix: str) -> Optional[tuple]:
@@ -136,11 +164,11 @@ def get_roi_for_prefix(prefix: str) -> Optional[tuple]:
 
 def save_overlay_settings(settings: dict) -> None:
     """Persist projection overlay settings to config.json."""
-    config_path = _get_config_path()
-    config = load_config()
-    config["overlay"] = settings
-    with open(config_path, "w") as f:
-        json.dump(config, f, indent=2)
+    with _config_lock:
+        config_path = _get_config_path()
+        config = load_config()
+        config["overlay"] = settings
+        _atomic_write_config(config_path, config)
 
 
 def load_overlay_settings() -> dict:

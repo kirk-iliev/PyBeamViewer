@@ -243,3 +243,9 @@ class ControlPanel(QWidget):
         lay.addWidget(overlay_grp)
 
         lay.addStretch()
+
+    def apply_theme(self, theme: Theme) -> None:
+        """Re-style labels inside group-boxes for the given *theme*."""
+        for grp in self.findChildren(QGroupBox):
+            for lbl in grp.findChildren(QLabel):
+                lbl.setStyleSheet(f"color: {theme.text_dim}; font-size: 12px;")

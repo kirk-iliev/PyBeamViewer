@@ -6,10 +6,14 @@ keeping the GUI responsive while processing frames.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 from queue import Empty, Full, Queue
 from typing import Optional
 from PyQt5.QtCore import QThread, pyqtSignal, QObject
+
+log = logging.getLogger(__name__)
 
 from core.state import FrameState
 from analysis.analysis import analyze_frame

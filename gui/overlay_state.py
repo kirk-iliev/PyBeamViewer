@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(frozen=True)
 class OverlayState:
     """Settings for projection overlays drawn on top of the image."""
     h_enabled: bool = False
