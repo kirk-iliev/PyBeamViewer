@@ -281,12 +281,19 @@ def analyze_frame(
     *,
     do_fit: bool = True,
     calibration: Optional["Calibration"] = None,
+    x_offset: int = 0,
+    y_offset: int = 0,
 ) -> BeamParameters:
     """Run the full analysis pipeline on a single frame.
 
     1. Compute X / Y projections
     2. Optionally fit each projection to a Gaussian
     3. If *calibration* is provided, apply µm conversion to fit results
+
+    *x_offset* and *y_offset* shift the x/y axes passed to the fitter so
+    that the returned centroid is in global pixel coordinates rather than
+    ROI-local coordinates.  Pass the ROI's top-left corner when analysing
+    a cropped sub-frame (matching MATLAB's ``xx = XLim(1):XLim(2)`` convention).
 
     Returns a :class:`BeamParameters` snapshot.
     """
@@ -296,8 +303,8 @@ def analyze_frame(
     y_fit: Optional[FitResult] = None
 
     if do_fit:
-        x_axis = np.arange(frame.shape[1], dtype=np.float64)
-        y_axis = np.arange(frame.shape[0], dtype=np.float64)
+        x_axis = np.arange(x_offset, x_offset + frame.shape[1], dtype=np.float64)
+        y_axis = np.arange(y_offset, y_offset + frame.shape[0], dtype=np.float64)
         x_fit = fit_gaussian_1d(x_axis, x_proj)
         y_fit = fit_gaussian_1d(y_axis, y_proj)
 

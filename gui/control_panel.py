@@ -29,7 +29,7 @@ class ControlPanel(QWidget):
 
     def __init__(self, theme: Theme, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setMinimumWidth(280)
+        self.setMinimumWidth(320)
         self.setMaximumWidth(320)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(6, 6, 6, 6)

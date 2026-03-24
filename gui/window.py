@@ -768,7 +768,7 @@ class BeamViewerWindow(QMainWindow):
 
         # Always compute projections synchronously — this is just array
         # summations and is never a source of hangs.
-        bp_no_fit = analyze_frame(roi_frame, do_fit=False)
+        bp_no_fit = analyze_frame(roi_frame, do_fit=False, x_offset=x0, y_offset=y0)
         self.h_proj_2.set_projection(bp_no_fit.x_projection, offset=x0)
         self.v_proj_2.set_projection(bp_no_fit.y_projection, offset=y0)
 
@@ -806,6 +806,7 @@ class BeamViewerWindow(QMainWindow):
 
         self._roi_fit_running = True
         frame_snapshot = roi_frame.copy()  # safe to read from another thread
+        roi_x0, roi_y0 = x0, y0  # capture for closure — x0/y0 may change by next tick
 
         def _run() -> None:
             try:
@@ -813,6 +814,8 @@ class BeamViewerWindow(QMainWindow):
                     frame_snapshot,
                     do_fit=True,
                     calibration=self._calibration,
+                    x_offset=roi_x0,
+                    y_offset=roi_y0,
                 )
                 self._roi_analysis_ready.emit((seq, bp))
             finally:
