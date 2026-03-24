@@ -126,7 +126,7 @@ class ProjectionPlot(QWidget):
             self.pw.setYRange(
                 self._smooth_y_min - padding,
                 self._smooth_y_max + padding,
-                padding=25,
+                padding=0,
             )
 
             # X-axis: pixel coordinate range
