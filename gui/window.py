@@ -769,8 +769,8 @@ class BeamViewerWindow(QMainWindow):
         # Always compute projections synchronously — this is just array
         # summations and is never a source of hangs.
         bp_no_fit = analyze_frame(roi_frame, do_fit=False)
-        self.h_proj_2.set_projection(bp_no_fit.x_projection)
-        self.v_proj_2.set_projection(bp_no_fit.y_projection)
+        self.h_proj_2.set_projection(bp_no_fit.x_projection, offset=x0)
+        self.v_proj_2.set_projection(bp_no_fit.y_projection, offset=y0)
 
         # ROI projection overlays
         if self._overlay_state.show_roi:
@@ -827,11 +827,14 @@ class BeamViewerWindow(QMainWindow):
         # Discard stale results that arrived after a newer ROI was requested.
         if seq != self._roi_seq:
             return
+        roi = self.image_pane_1.current_roi
+        x0, y0 = (roi[0], roi[1]) if roi is not None else (0, 0)
         if bp.x_fit is not None and bp.x_fit.success:
             self.h_proj_2.set_fit(
                 bp.x_fit.fitted_curve, bp.x_fit.sigma,
                 bp.x_fit.centroid, bp.x_fit.amplitude,
                 sigma_um=bp.x_fit.sigma_um, unit_label=bp.x_fit.unit_label,
+                offset=x0,
             )
         else:
             self.h_proj_2.clear_fit()
@@ -841,6 +844,7 @@ class BeamViewerWindow(QMainWindow):
                 bp.y_fit.fitted_curve, bp.y_fit.sigma,
                 bp.y_fit.centroid, bp.y_fit.amplitude,
                 sigma_um=bp.y_fit.sigma_um, unit_label=bp.y_fit.unit_label,
+                offset=y0,
             )
         else:
             self.v_proj_2.clear_fit()

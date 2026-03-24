@@ -96,8 +96,9 @@ class ProjectionPlot(QWidget):
         self._apply_theme_internals(theme)
 
     # public API
-    def set_projection(self, data: np.ndarray) -> None:
-        self.curve.setData(data)
+    def set_projection(self, data: np.ndarray, offset: int = 0) -> None:
+        x = np.arange(offset, offset + len(data), dtype=np.float64)
+        self.curve.setData(x, data)
 
         if len(data) > 0:
             y_min = float(np.min(data))
@@ -125,13 +126,14 @@ class ProjectionPlot(QWidget):
             self.pw.setYRange(
                 self._smooth_y_min - padding,
                 self._smooth_y_max + padding,
-                padding=0,
+                padding=25,
             )
 
-            # X-axis: full range of data indices
-            x_max = len(data) - 1
-            x_padding = max(x_max * 0.02, 1)
-            self.pw.setXRange(-x_padding, x_max + x_padding, padding=0)
+            # X-axis: pixel coordinate range
+            x_start = float(offset)
+            x_end = float(offset + len(data) - 1)
+            x_padding = max((x_end - x_start) * 0.02, 1)
+            self.pw.setXRange(x_start - x_padding, x_end + x_padding, padding=0)
 
     def set_fit(
         self,
@@ -142,8 +144,10 @@ class ProjectionPlot(QWidget):
         *,
         sigma_um: float | None = None,
         unit_label: str = "px",
+        offset: int = 0,
     ) -> None:
-        self.fit_curve.setData(np.arange(len(fitted), dtype=np.float64), fitted)
+        x = np.arange(offset, offset + len(fitted), dtype=np.float64)
+        self.fit_curve.setData(x, fitted)
         if sigma_um is not None:
             sigma_text = f"σ: {sigma_um:8.3f} {unit_label}  ({sigma:.2f} px)"
         else:
