@@ -7,17 +7,26 @@ Qt event loop.
 
 from __future__ import annotations
 
+import logging
 import sys
+import traceback
 
 import pyqtgraph as pg
-from PyQt6.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QMessageBox
 
-from controller import BeamController
+from core.controller import BeamController
+from core.epics_layer import shutdown_native_ctx
 from gui import BeamViewerWindow
-from state import AppState
+from core.state import AppState
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
 
@@ -26,16 +35,25 @@ def main() -> None:
     pg.setConfigOption("foreground", "w")
     pg.setConfigOption("imageAxisOrder", "row-major")
 
-    # --- MVC wiring ---
-    state = AppState()
-    window = BeamViewerWindow()
-    controller = BeamController(state, window)
+    try:
+        # --- MVC wiring ---
+        state = AppState()
+        window = BeamViewerWindow(fallback_shape=state.fallback_shape)
+        controller = BeamController(state, window)
+    except Exception:
+        QMessageBox.critical(
+            None,
+            "Startup Error",
+            f"Failed to initialise the application:\n\n{traceback.format_exc()}",
+        )
+        sys.exit(1)
 
     window.show()
     controller.start()
 
-    exit_code = app.exec()
+    exit_code = app.exec_()
     controller.stop()
+    shutdown_native_ctx()
     sys.exit(exit_code)
 
 

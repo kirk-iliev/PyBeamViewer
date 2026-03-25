@@ -30,3 +30,7 @@ legacy/
 
 # Docs
 CODEBASE_SUMMARY.md
+
+# Pyre
+.pylintrc
+.pyre_configuration

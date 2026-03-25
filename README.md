@@ -1,6 +1,6 @@
 # PyBeamViewer
 
-A PyQt6-based GUI application for real-time beam visualization and analysis using EPICS PV (Process Variable) data.
+A PyQt GUI application for real-time beam visualization and analysis using EPICS PV (Process Variable) data.
 
 ## Features
 

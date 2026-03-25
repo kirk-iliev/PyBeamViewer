@@ -8,14 +8,17 @@ so state can be safely read/written from any thread.
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
 import numpy as np
 
-from analysis import BeamParameters
-from config import get_epics_connection, get_pv_names, get_display_settings
+log = logging.getLogger(__name__)
+
+from analysis.analysis import BeamParameters
+from config.config import get_epics_connection, get_pv_names, get_display_settings
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +75,12 @@ class AppState:
         self._frame_state: Optional[FrameState] = None
         self._connected: bool = False
         self._frame_count: int = 0
+        self._background_frame: Optional[np.ndarray] = None
+        self._bg_subtraction_enabled: bool = False
+        # Per-prefix background cache: {prefix: ndarray}
+        self._backgrounds: dict[str, np.ndarray] = {}
+        # Per-prefix subtraction toggle: {prefix: bool}
+        self._bg_enabled_map: dict[str, bool] = {}
 
         # ---- Display / analysis settings ----------------------------------
         self.enable_fitting: bool = display_opts.get("enable_fitting", True)
@@ -112,3 +121,68 @@ class AppState:
         with self._lock:
             self._frame_count += 1
             return self._frame_count
+
+    # -- background_frame ---------------------------------------------------
+    @property
+    def background_frame(self) -> Optional[np.ndarray]:
+        with self._lock:
+            return self._background_frame
+
+    @background_frame.setter
+    def background_frame(self, value: Optional[np.ndarray]) -> None:
+        with self._lock:
+            self._background_frame = value
+
+    # -- bg_subtraction_enabled ---------------------------------------------
+    @property
+    def bg_subtraction_enabled(self) -> bool:
+        with self._lock:
+            return self._bg_subtraction_enabled
+
+    @bg_subtraction_enabled.setter
+    def bg_subtraction_enabled(self, value: bool) -> None:
+        with self._lock:
+            self._bg_subtraction_enabled = value
+
+    # -- per-prefix background cache ----------------------------------------
+
+    def store_background_for_prefix(self, prefix: str, frame: np.ndarray) -> None:
+        """Cache a background frame for *prefix*."""
+        with self._lock:
+            self._backgrounds[prefix] = frame
+
+    def get_background_for_prefix(self, prefix: str) -> Optional[np.ndarray]:
+        """Return the cached background for *prefix*, or None."""
+        with self._lock:
+            return self._backgrounds.get(prefix)
+
+    def store_bg_enabled_for_prefix(self, prefix: str, enabled: bool) -> None:
+        """Remember whether subtraction was enabled for *prefix*."""
+        with self._lock:
+            self._bg_enabled_map[prefix] = enabled
+
+    def get_bg_enabled_for_prefix(self, prefix: str) -> bool:
+        """Return whether subtraction was enabled for *prefix*."""
+        with self._lock:
+            return self._bg_enabled_map.get(prefix, False)
+
+    # -- bulk PV config update (lock-protected) -----------------------------
+
+    def update_connection_config(self, pv_names: dict) -> None:
+        """Update all PV-related attributes atomically under the lock.
+
+        Called during a prefix switch so no thread can read partially
+        updated state.
+        """
+        with self._lock:
+            self.image_pv = pv_names["image_pv"]
+            self.width_pv = pv_names["width_pv"]
+            self.height_pv = pv_names["height_pv"]
+            self.exposure_pv = pv_names.get("exposure_pv", "")
+            self.exposure_rbv_pv = pv_names.get("exposure_rbv_pv", "")
+            self.gain_pv = pv_names.get("gain_pv", "")
+            self.gain_rbv_pv = pv_names.get("gain_rbv_pv", "")
+            _fs = pv_names.get("fallback_shape")
+            self.fallback_shape = (
+                (int(_fs[0]), int(_fs[1])) if _fs is not None else None
+            )

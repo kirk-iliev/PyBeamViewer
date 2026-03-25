@@ -1,5 +1,14 @@
-PyQt6==6.7.0
-pyqtgraph==0.13.3
-numpy==1.26.4
-caproto==0.9.3
-scipy==1.13.0
+# Runtime dependencies
+PyQt5>=5.15
+pyqtgraph>=0.13
+numpy>=1.24
+scipy>=1.11
+caproto>=1.1
+
+# Development / testing (also declared in pyproject.toml [dev] extras)
+pytest>=8
+pytest-cov>=5
+pytest-qt>=4
+pytest-subtests>=0.11
+mypy>=1.9
+ruff>=0.4
