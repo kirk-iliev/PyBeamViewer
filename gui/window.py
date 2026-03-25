@@ -23,7 +23,6 @@ the network or analysis layers directly.
 
 from __future__ import annotations
 
-import threading
 import time
 from contextlib import contextmanager
 from dataclasses import replace
@@ -44,7 +43,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from analysis.analysis import analyze_frame
+from analysis.analysis import compute_projections
 from analysis.calibration import Calibration
 from core.state import FrameState
 
@@ -85,9 +84,7 @@ class BeamViewerWindow(QMainWindow):
     save_background_requested = pyqtSignal()
     load_background_requested = pyqtSignal(str)   # carries the .npy file path
     overlay_settings_changed = pyqtSignal(object)  # OverlayState
-    # Emitted from a background thread when ROI fitting completes.
-    # Payload is a tuple (seq: int, bp: BeamParameters).
-    _roi_analysis_ready = pyqtSignal(object)
+    roi_fit_requested = pyqtSignal(object, np.ndarray)  # (roi_coords_tuple, roi_frame_copy)
 
     def __init__(self, fallback_shape: Optional[tuple] = None, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -129,13 +126,6 @@ class BeamViewerWindow(QMainWindow):
         # Frame rate tracking
         self._start_time: Optional[float] = None
         self._last_frame_time: Optional[float] = None
-        # Sequence counter used to discard stale ROI fit results.
-        self._roi_seq: int = 0
-        # Prevent more than one ROI fit thread from running at a time.
-        self._roi_fit_running: bool = False
-
-        # Wire up the cross-thread ROI result signal.
-        self._roi_analysis_ready.connect(self._on_roi_analysis_ready)
 
         # ROI selection: _on_roi_changed handles visibility + persistence
         self.image_pane_1.roi_changed.connect(self._on_roi_changed)
@@ -714,10 +704,9 @@ class BeamViewerWindow(QMainWindow):
     def _update_roi(self) -> None:
         """Extract the ROI from the cached frame and refresh the bottom pane.
 
-        Projections are updated immediately on the main thread (cheap).  When
-        ROI fitting is enabled the fitting work is dispatched to a daemon
-        background thread so that slow ``scipy.optimize.curve_fit`` calls
-        (e.g. with a hot-pixel spike) never block the Qt event loop.
+        Projections are updated immediately on the main thread (cheap).
+        When ROI fitting is enabled, the View emits ``roi_fit_requested``
+        so the controller can run the fit on a background thread.
         """
         if self._last_frame is None:
             return
@@ -737,16 +726,15 @@ class BeamViewerWindow(QMainWindow):
 
         self.image_pane_2.set_image(roi_frame, self._last_frame_number)
 
-        # Always compute projections synchronously — this is just array
-        # summations and is never a source of hangs.
-        bp_no_fit = analyze_frame(roi_frame, do_fit=False, x_offset=x0, y_offset=y0)
-        self.h_proj_2.set_projection(bp_no_fit.x_projection, offset=x0)
-        self.v_proj_2.set_projection(bp_no_fit.y_projection, offset=y0)
+        # Compute projections synchronously — just array summations, fast.
+        x_proj, y_proj = compute_projections(roi_frame)
+        self.h_proj_2.set_projection(x_proj, offset=x0)
+        self.v_proj_2.set_projection(y_proj, offset=y0)
 
         # ROI projection overlays
         if self._overlay_state.show_roi:
             self.image_pane_2.update_projections(
-                bp_no_fit.x_projection, bp_no_fit.y_projection,
+                x_proj, y_proj,
                 roi_frame.shape[:2], self._overlay_state,
                 x_offset=float(x0), y_offset=float(y0),
             )
@@ -758,49 +746,13 @@ class BeamViewerWindow(QMainWindow):
             self.h_proj_2.clear_fit()
             self.v_proj_2.clear_fit()
             return
-        # Fitting is on — leave the previous fit stats visible while the new
-        # fit is being computed in the background (avoids the flash-to-dashes
-        # on every tick).  Stats will be replaced when _on_roi_analysis_ready
-        # fires, mirroring how the full-image projections behave.
 
-        # --- off-thread Gaussian fit ---
-        # Bump the sequence so any in-flight result from a previous call is
-        # considered stale and discarded when it arrives.
-        self._roi_seq += 1
-        seq = self._roi_seq
-
-        if self._roi_fit_running:
-            # A fit is already in-flight; the new result will be superseded
-            # by the *next* frame anyway, so just let that one finish and
-            # it will clear_fit if the seq doesn't match.
-            return
-
-        self._roi_fit_running = True
-        frame_snapshot = roi_frame.copy()  # safe to read from another thread
-        roi_x0, roi_y0 = x0, y0  # capture for closure — x0/y0 may change by next tick
-
-        def _run() -> None:
-            try:
-                bp = analyze_frame(
-                    frame_snapshot,
-                    do_fit=True,
-                    calibration=self._calibration,
-                    x_offset=roi_x0,
-                    y_offset=roi_y0,
-                )
-                self._roi_analysis_ready.emit((seq, bp))
-            finally:
-                self._roi_fit_running = False
-
-        threading.Thread(target=_run, daemon=True).start()
+        # Request fitting from the controller (runs on a background thread).
+        self.roi_fit_requested.emit(roi, roi_frame.copy())
 
     @pyqtSlot(object)
-    def _on_roi_analysis_ready(self, payload: object) -> None:
-        """Receive a completed ROI fit result from the background thread."""
-        seq, bp = payload  # type: ignore[misc]
-        # Discard stale results that arrived after a newer ROI was requested.
-        if seq != self._roi_seq:
-            return
+    def deliver_roi_fit_result(self, bp) -> None:
+        """Apply finished ROI fit results delivered by the controller."""
         roi = self.image_pane_1.current_roi
         x0, y0 = (roi[0], roi[1]) if roi is not None else (0, 0)
         if bp.x_fit is not None and bp.x_fit.success:

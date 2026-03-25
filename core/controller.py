@@ -29,6 +29,7 @@ from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 
 log = logging.getLogger(__name__)
 
+from analysis.analysis import analyze_frame
 from analysis.analysis_worker import AnalysisWorker
 from analysis.calibration import load_calibration
 from config.config import (
@@ -61,6 +62,7 @@ class BeamController(QObject):
     _gain_rbv_updated = pyqtSignal(int)
     _exposure_rbv_reverted = pyqtSignal()
     _gain_rbv_reverted = pyqtSignal()
+    _roi_fit_done = pyqtSignal(object)  # BeamParameters
 
     def __init__(
         self,
@@ -75,6 +77,8 @@ class BeamController(QObject):
         self._fit_full: bool = True
         self._acquire_next_frame: bool = False
         self._active_prefix: str = get_active_prefix()
+        self._roi_seq: int = 0
+        self._roi_fit_running: bool = False
 
         # --- create workers (not started yet) ---
         self._epics_worker = EpicsWorker(
@@ -109,12 +113,14 @@ class BeamController(QObject):
         self.gui.save_background_requested.connect(self._on_save_background_requested)
         self.gui.load_background_requested.connect(self._on_load_background_requested)
         self.gui.overlay_settings_changed.connect(self._on_overlay_settings_changed)
+        self.gui.roi_fit_requested.connect(self._on_roi_fit_requested)
 
         # --- thread-safe RBV update signals ---
         self._exposure_rbv_updated.connect(self.gui.set_exposure_rbv)
         self._gain_rbv_updated.connect(self.gui.set_gain_rbv)
         self._exposure_rbv_reverted.connect(self.gui.revert_exposure_spinbox)
         self._gain_rbv_reverted.connect(self.gui.revert_gain_spinbox)
+        self._roi_fit_done.connect(self.gui.deliver_roi_fit_result)
 
         # --- initialise GUI state ---
         self.gui.set_available_prefixes(
@@ -450,6 +456,40 @@ class BeamController(QObject):
     def _on_roi_changed(self, roi: object) -> None:
         """Persist the ROI for the active camera whenever it changes."""
         save_roi_for_prefix(self._active_prefix, roi)  # type: ignore[arg-type]
+
+    # ------------------------------------------------------------------
+    # ROI fitting (runs on a background thread, delivers via signal)
+    # ------------------------------------------------------------------
+
+    @pyqtSlot(object, np.ndarray)
+    def _on_roi_fit_requested(self, roi: object, roi_frame: np.ndarray) -> None:
+        """Run a Gaussian fit on the ROI sub-frame in a background thread."""
+        self._roi_seq += 1
+        seq = self._roi_seq
+
+        if self._roi_fit_running:
+            # A fit is already in-flight; the next frame will supersede anyway.
+            return
+
+        self._roi_fit_running = True
+        x0, y0 = (roi[0], roi[1]) if roi is not None else (0, 0)  # type: ignore[index]
+
+        def _run() -> None:
+            try:
+                bp = analyze_frame(
+                    roi_frame,
+                    do_fit=True,
+                    calibration=self._calibration,
+                    x_offset=x0,
+                    y_offset=y0,
+                )
+                # Only deliver if this result is still the latest request.
+                if seq == self._roi_seq:
+                    self._roi_fit_done.emit(bp)
+            finally:
+                self._roi_fit_running = False
+
+        threading.Thread(target=_run, daemon=True).start()
 
     @pyqtSlot(object)
     def _on_overlay_settings_changed(self, state: object) -> None:

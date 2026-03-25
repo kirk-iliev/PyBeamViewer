@@ -29,12 +29,67 @@ def _get_config_path() -> Path:
     return Path(__file__).parent / "config.json"
 
 
+def validate_config(config: Dict[str, Any]) -> None:
+    """Validate *config* and emit warnings for structural problems.
+
+    Intentionally non-fatal: warnings are logged so the application can
+    start up and the operator can fix the config without a hard crash.
+    """
+    required_top_level = {"active_prefix", "pv_prefixes", "epics"}
+    for key in required_top_level:
+        if key not in config:
+            log.warning("config.json: missing required top-level key %r", key)
+
+    pv_prefixes: Dict[str, Any] = config.get("pv_prefixes", {})
+    required_pv_keys = {"image_pv", "width_pv", "height_pv"}
+    valid_cal_methods = {"fixed", "pinhole", "none"}
+
+    for prefix, entry in pv_prefixes.items():
+        if not isinstance(entry, dict):
+            log.warning("config.json: pv_prefixes[%r] must be a dict", prefix)
+            continue
+
+        for key in required_pv_keys:
+            if not entry.get(key):
+                log.warning(
+                    "config.json: pv_prefixes[%r] missing required key %r", prefix, key
+                )
+
+        fallback = entry.get("fallback_shape")
+        if fallback is not None:
+            if (
+                not isinstance(fallback, (list, tuple))
+                or len(fallback) != 2
+                or not all(isinstance(v, int) and v > 0 for v in fallback)
+            ):
+                log.warning(
+                    "config.json: pv_prefixes[%r]['fallback_shape'] must be "
+                    "a 2-element list of positive ints, got %r",
+                    prefix, fallback,
+                )
+
+        cal = entry.get("calibration")
+        if cal is not None:
+            if not isinstance(cal, dict):
+                log.warning(
+                    "config.json: pv_prefixes[%r]['calibration'] must be a dict", prefix
+                )
+            else:
+                method = str(cal.get("method", "")).lower()
+                if method not in valid_cal_methods:
+                    log.warning(
+                        "config.json: pv_prefixes[%r]['calibration']['method'] "
+                        "is %r — expected one of %s",
+                        prefix, method, sorted(valid_cal_methods),
+                    )
+
+
 def load_config() -> Dict[str, Any]:
-    """Load configuration from config.json."""
+    """Load and validate configuration from config.json."""
     config_path = _get_config_path()
     try:
         with open(config_path, "r") as f:
-            return json.load(f)
+            config = json.load(f)
     except FileNotFoundError:
         raise FileNotFoundError(
             f"Configuration file not found: {config_path}\n"
@@ -42,6 +97,9 @@ def load_config() -> Dict[str, Any]:
         )
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON in config.json: {e}")
+
+    validate_config(config)
+    return config
 
 
 def get_pv_names(prefix: Optional[str] = None) -> Dict[str, str]:
@@ -239,12 +297,12 @@ def get_active_background_path(prefix: str) -> Optional[Path]:
 
 def set_active_background_path(prefix: str, path: Optional[Path | str]) -> None:
     """Persist the active background file path for *prefix* in config.json."""
-    config_path = _get_config_path()
-    config = load_config()
-    active: Dict[str, Any] = config.setdefault("active_backgrounds", {})
-    if path is None:
-        active.pop(prefix, None)
-    else:
-        active[prefix] = str(path)
-    with open(config_path, "w") as f:
-        json.dump(config, f, indent=2)
+    with _config_lock:
+        config_path = _get_config_path()
+        config = load_config()
+        active: Dict[str, Any] = config.setdefault("active_backgrounds", {})
+        if path is None:
+            active.pop(prefix, None)
+        else:
+            active[prefix] = str(path)
+        _atomic_write_config(config_path, config)

@@ -255,74 +255,82 @@ class EpicsWorker(QThread):
 
     # --- NATIVE MODE (Control Room) ---
     def _run_native_mode(self) -> None:
-        # Only clear env vars if they're not already set
-        # (respect pre-configured EPICS_CA_ADDR_LIST from the environment)
-        #if "EPICS_CA_ADDR_LIST" not in os.environ:
-        #    os.environ.pop("EPICS_CA_ADDR_LIST", None)
-        #if "EPICS_CA_AUTO_ADDR_LIST" not in os.environ:
-        #    os.environ.pop("EPICS_CA_AUTO_ADDR_LIST", None)
+        _RETRY_DELAYS = (2.0, 5.0, 10.0, 30.0)
+        attempt = 0
 
-        ctx = Context()
-        subs: list[Any] = []
+        while not self._stop_event.is_set():
+            ctx = Context()
+            subs: list[Any] = []
 
-        try:
-            pv_names = [self.image_pv]
-            if self.width_pv: pv_names.append(self.width_pv)
-            if self.height_pv: pv_names.append(self.height_pv)
+            try:
+                pv_names = [self.image_pv]
+                if self.width_pv: pv_names.append(self.width_pv)
+                if self.height_pv: pv_names.append(self.height_pv)
 
-            pvs = ctx.get_pvs(*pv_names)
-            pv_map = {pv.name: pv for pv in pvs}
-            img_pv = pv_map[self.image_pv]
+                pvs = ctx.get_pvs(*pv_names)
+                pv_map = {pv.name: pv for pv in pvs}
+                img_pv = pv_map[self.image_pv]
 
-            log.info("[Native Mode] Waiting for connection to %s ...", self.image_pv)
-            while not self._stop_event.is_set():
+                log.info("[Native Mode] Waiting for connection to %s ...", self.image_pv)
+                while not self._stop_event.is_set():
+                    try:
+                        img_pv.wait_for_connection(timeout=1.0)
+                        break
+                    except ca.CaprotoTimeoutError:
+                        continue
+
+                if self._stop_event.is_set():
+                    return
+
+                attempt = 0
+                self.connection_changed.emit(True)
+
+                if self.width_pv and self.width_pv in pv_map:
+                    def on_width(sub, response):
+                        if self._stop_event.is_set(): return
+                        if response.data is not None: self._width = int(response.data[0])
+                    sub = pv_map[self.width_pv].subscribe()
+                    sub.add_callback(on_width)
+                    subs.append(sub)
+
+                if self.height_pv and self.height_pv in pv_map:
+                    def on_height(sub, response):
+                        if self._stop_event.is_set(): return
+                        if response.data is not None: self._height = int(response.data[0])
+                    sub = pv_map[self.height_pv].subscribe()
+                    sub.add_callback(on_height)
+                    subs.append(sub)
+
+                def on_image(sub, response):
+                    if self._stop_event.is_set(): return
+                    if response.data is not None:
+                        raw = np.asarray(response.data)
+                        frame = self._reshape(raw)
+                        if frame is not None:
+                            self.new_frame.emit(frame)
+
+                img_sub = img_pv.subscribe()
+                img_sub.add_callback(on_image)
+                subs.append(img_sub)
+
+                while not self._stop_event.is_set():
+                    self._stop_event.wait(0.1)
+
+            except Exception as exc:
+                self.error_occurred.emit(str(exc))
+            finally:
+                self.connection_changed.emit(False)
                 try:
-                    img_pv.wait_for_connection(timeout=1.0)
-                    break
-                except ca.CaprotoTimeoutError:
-                    continue
+                    ctx.disconnect()
+                except Exception:
+                    pass
 
             if self._stop_event.is_set():
-                return
-
-            self.connection_changed.emit(True)
-
-            if self.width_pv and self.width_pv in pv_map:
-                def on_width(sub, response):
-                    if self._stop_event.is_set(): return
-                    if response.data is not None: self._width = int(response.data[0])
-                sub = pv_map[self.width_pv].subscribe()
-                sub.add_callback(on_width)
-                subs.append(sub)
-
-            if self.height_pv and self.height_pv in pv_map:
-                def on_height(sub, response):
-                    if self._stop_event.is_set(): return
-                    if response.data is not None: self._height = int(response.data[0])
-                sub = pv_map[self.height_pv].subscribe()
-                sub.add_callback(on_height)
-                subs.append(sub)
-
-            def on_image(sub, response):
-                if self._stop_event.is_set(): return
-                if response.data is not None:
-                    raw = np.asarray(response.data)
-                    frame = self._reshape(raw)
-                    if frame is not None:
-                        self.new_frame.emit(frame)
-
-            img_sub = img_pv.subscribe()
-            img_sub.add_callback(on_image)
-            subs.append(img_sub)
-
-            while not self._stop_event.is_set():
-                self._stop_event.wait(0.1)
-
-        except Exception as exc:
-            self.error_occurred.emit(str(exc))
-        finally:
-            self.connection_changed.emit(False)
-            ctx.disconnect()
+                break
+            delay = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
+            attempt += 1
+            log.info("[Native Mode] Reconnecting in %.1f s (attempt %d)...", delay, attempt)
+            self._stop_event.wait(delay)
 
     # --- TUNNEL MODE (SSH) ---
     def _run_tunnel_mode(self) -> None:
