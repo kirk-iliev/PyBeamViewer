@@ -738,7 +738,11 @@ class BeamViewerWindow(QMainWindow):
             cp.overlay_show_roi_btn.setText("✓  ROI" if state.show_roi else "ROI")
 
     def _update_crosshair_display(self, live: Optional[tuple]) -> None:
-        """Update the crosshair overlay and drift label from the live centroid."""
+        """Update crosshair overlays and drift label from the live centroid.
+
+        Red crosshair = reference anchor (where beam was when Center ROI clicked).
+        Green crosshair = current live centroid, updated every frame.
+        """
         ref = self._centroid_reference
         if not self._crosshair_enabled or ref is None:
             self.image_pane_2.clear_centroid_crosshair()
@@ -746,11 +750,13 @@ class BeamViewerWindow(QMainWindow):
             return
 
         rx, ry = ref
-        self.image_pane_2.set_centroid_crosshair(rx, ry, visible=True)
+        self.image_pane_2.set_reference_crosshair(rx, ry, visible=True)
 
         if live is not None:
-            dx_px = live[0] - rx
-            dy_px = live[1] - ry
+            lx, ly = live
+            self.image_pane_2.set_live_crosshair(lx, ly, visible=True)
+            dx_px = lx - rx
+            dy_px = ly - ry
             if self._calibration.is_calibrated:
                 dx_um = self._calibration.pixel_to_um(dx_px)
                 dy_um = self._calibration.pixel_to_um(dy_px)
@@ -763,6 +769,7 @@ class BeamViewerWindow(QMainWindow):
             self.drift_label.setText(text)
             self.drift_label.show()
         else:
+            self.image_pane_2.set_live_crosshair(0, 0, visible=False)
             self.drift_label.hide()
 
     def _update_roi(self) -> None:

@@ -129,21 +129,36 @@ class ImagePane(QWidget):
         self._v_overlay_curve.hide()
         self._v_fill.hide()
 
-        # --- Centroid reference crosshair (green circle + cross arms) ---
-        _xhair_pen = pg.mkPen("#00ff00", width=1.5)
-        self._crosshair_h = pg.PlotDataItem(pen=_xhair_pen)
-        self._crosshair_v = pg.PlotDataItem(pen=_xhair_pen)
-        self._crosshair_circle = pg.ScatterPlotItem(
+        # --- Centroid crosshairs: red = reference anchor, green = live position ---
+        _ref_pen = pg.mkPen("#ff4444", width=1.5)
+        self._ref_crosshair_h = pg.PlotDataItem(pen=_ref_pen)
+        self._ref_crosshair_v = pg.PlotDataItem(pen=_ref_pen)
+        self._ref_crosshair_circle = pg.ScatterPlotItem(
+            symbol='o', size=24,
+            pen=pg.mkPen("#ff4444", width=1.5),
+            brush=pg.mkBrush(None),
+        )
+        self.plot.addItem(self._ref_crosshair_h)
+        self.plot.addItem(self._ref_crosshair_v)
+        self.plot.addItem(self._ref_crosshair_circle)
+        self._ref_crosshair_h.hide()
+        self._ref_crosshair_v.hide()
+        self._ref_crosshair_circle.hide()
+
+        _live_pen = pg.mkPen("#00ff00", width=1.5)
+        self._live_crosshair_h = pg.PlotDataItem(pen=_live_pen)
+        self._live_crosshair_v = pg.PlotDataItem(pen=_live_pen)
+        self._live_crosshair_circle = pg.ScatterPlotItem(
             symbol='o', size=24,
             pen=pg.mkPen("#00ff00", width=1.5),
             brush=pg.mkBrush(None),
         )
-        self.plot.addItem(self._crosshair_h)
-        self.plot.addItem(self._crosshair_v)
-        self.plot.addItem(self._crosshair_circle)
-        self._crosshair_h.hide()
-        self._crosshair_v.hide()
-        self._crosshair_circle.hide()
+        self.plot.addItem(self._live_crosshair_h)
+        self.plot.addItem(self._live_crosshair_v)
+        self.plot.addItem(self._live_crosshair_circle)
+        self._live_crosshair_h.hide()
+        self._live_crosshair_v.hide()
+        self._live_crosshair_circle.hide()
 
         self._apply_header_style(theme)
 
@@ -151,24 +166,45 @@ class ImagePane(QWidget):
     # Centroid crosshair API
     # ------------------------------------------------------------------
 
-    def set_centroid_crosshair(self, cx: float, cy: float, visible: bool) -> None:
-        """Show or hide the centroid reference crosshair at (cx, cy)."""
+    _CROSSHAIR_ARM = 12.0
+
+    def set_reference_crosshair(self, cx: float, cy: float, visible: bool) -> None:
+        """Show or hide the red reference-anchor crosshair at (cx, cy)."""
         if not visible:
-            self.clear_centroid_crosshair()
+            self._ref_crosshair_h.hide()
+            self._ref_crosshair_v.hide()
+            self._ref_crosshair_circle.hide()
             return
-        arm = 12.0
-        self._crosshair_h.setData([cx - arm, cx + arm], [cy, cy])
-        self._crosshair_v.setData([cx, cx], [cy - arm, cy + arm])
-        self._crosshair_circle.setData([cx], [cy])
-        self._crosshair_h.show()
-        self._crosshair_v.show()
-        self._crosshair_circle.show()
+        arm = self._CROSSHAIR_ARM
+        self._ref_crosshair_h.setData([cx - arm, cx + arm], [cy, cy])
+        self._ref_crosshair_v.setData([cx, cx], [cy - arm, cy + arm])
+        self._ref_crosshair_circle.setData([cx], [cy])
+        self._ref_crosshair_h.show()
+        self._ref_crosshair_v.show()
+        self._ref_crosshair_circle.show()
+
+    def set_live_crosshair(self, cx: float, cy: float, visible: bool) -> None:
+        """Show or hide the green live-centroid crosshair at (cx, cy)."""
+        if not visible:
+            self._live_crosshair_h.hide()
+            self._live_crosshair_v.hide()
+            self._live_crosshair_circle.hide()
+            return
+        arm = self._CROSSHAIR_ARM
+        self._live_crosshair_h.setData([cx - arm, cx + arm], [cy, cy])
+        self._live_crosshair_v.setData([cx, cx], [cy - arm, cy + arm])
+        self._live_crosshair_circle.setData([cx], [cy])
+        self._live_crosshair_h.show()
+        self._live_crosshair_v.show()
+        self._live_crosshair_circle.show()
 
     def clear_centroid_crosshair(self) -> None:
-        """Hide the centroid reference crosshair."""
-        self._crosshair_h.hide()
-        self._crosshair_v.hide()
-        self._crosshair_circle.hide()
+        """Hide both the reference and live crosshairs."""
+        for item in (
+            self._ref_crosshair_h, self._ref_crosshair_v, self._ref_crosshair_circle,
+            self._live_crosshair_h, self._live_crosshair_v, self._live_crosshair_circle,
+        ):
+            item.hide()
 
     # ------------------------------------------------------------------
     # Projection overlay API
