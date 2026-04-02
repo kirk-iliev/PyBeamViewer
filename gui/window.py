@@ -85,6 +85,8 @@ class BeamViewerWindow(QMainWindow):
     load_background_requested = pyqtSignal(str)   # carries the .npy file path
     overlay_settings_changed = pyqtSignal(object)  # OverlayState
     roi_fit_requested = pyqtSignal(object, np.ndarray)  # (roi_coords_tuple, roi_frame_copy)
+    centroid_reference_changed = pyqtSignal(float, float)  # (cx, cy) after Center ROI
+    crosshair_toggled = pyqtSignal(bool)  # crosshair visibility toggle
 
     def __init__(self, fallback_shape: Optional[tuple] = None, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -93,6 +95,9 @@ class BeamViewerWindow(QMainWindow):
         self._overlay_state = OverlayState()
         self._bg_file_list_for_dialog: list = []
         self._calibration: Calibration = Calibration()  # uncalibrated default
+        self._centroid_reference: Optional[tuple] = None  # (cx, cy) in full-image coords
+        self._crosshair_enabled: bool = False
+        self._live_roi_centroid: Optional[tuple] = None  # updated each frame
 
         self.setWindowTitle("Beam Profile Viewer")
         self.resize(1500, 920)
@@ -132,6 +137,12 @@ class BeamViewerWindow(QMainWindow):
 
         img_lay.addWidget(self.image_pane_1, stretch=1)
         img_lay.addWidget(self.image_pane_2, stretch=1)
+
+        self.drift_label = QLabel("")
+        self.drift_label.setAlignment(Qt.AlignCenter)
+        self.drift_label.hide()
+        img_lay.addWidget(self.drift_label)
+
         inner.addWidget(img_col)
 
         #  ┌── projections column ──┐
@@ -237,6 +248,8 @@ class BeamViewerWindow(QMainWindow):
         cp.load_bg_btn.clicked.connect(self._on_load_bg_clicked)
 
         # Overlay controls
+        cp.show_crosshair_btn.toggled.connect(self._on_crosshair_toggled)
+
         cp.h_overlay_btn.toggled.connect(self._on_overlay_changed)
         cp.h_overlay_side.currentTextChanged.connect(
             lambda _: self._on_overlay_changed(),
@@ -282,6 +295,11 @@ class BeamViewerWindow(QMainWindow):
 
         for pane in (self.image_pane_1, self.image_pane_2):
             pane.apply_theme(theme)
+
+        self.drift_label.setStyleSheet(
+            f"color: #00cc44; font-size: 11px; font-family: {_MONO}; "
+            f"font-weight: 600; padding: 2px 0px;"
+        )
 
         self.control_panel.apply_theme(theme)
 
@@ -386,6 +404,14 @@ class BeamViewerWindow(QMainWindow):
         else:
             self.image_pane_2.clear_projections()
 
+    def _on_crosshair_toggled(self, checked: bool) -> None:
+        self._crosshair_enabled = checked
+        self.control_panel.show_crosshair_btn.setText(
+            "✓  Show Centroid Ref" if checked else "Show Centroid Ref"
+        )
+        self._update_crosshair_display(self._live_roi_centroid)
+        self.crosshair_toggled.emit(checked)
+
     def _on_fit_full_toggled(self, checked: bool) -> None:
         self.control_panel.fit_full_btn.setText(
             "✓  Fit Full Image" if checked else "Fit Full Image"
@@ -438,6 +464,12 @@ class BeamViewerWindow(QMainWindow):
         ny1 = min(fh, cy + half)
 
         self.image_pane_1.set_roi((nx0, ny0, nx1, ny1))
+
+        # Save centroid reference for crosshair / drift tracking
+        self._centroid_reference = (float(cx), float(cy))
+        self.centroid_reference_changed.emit(float(cx), float(cy))
+        self.control_panel.show_crosshair_btn.setEnabled(True)
+        self._update_crosshair_display(self._live_roi_centroid)
 
     # ------------------------------------------------------------------
     # Background subtraction UI
@@ -636,6 +668,8 @@ class BeamViewerWindow(QMainWindow):
         self.image_pane_2.setVisible(visible)
         self.h_proj_2.setVisible(visible)
         self.v_proj_2.setVisible(visible)
+        if not visible:
+            self.drift_label.hide()
 
     @pyqtSlot(object)
     def _on_roi_changed(self, roi: object) -> None:
@@ -646,6 +680,8 @@ class BeamViewerWindow(QMainWindow):
             self._update_roi()
             # Clear stale projections from a previous ROI when a new one is drawn
         else:
+            self._live_roi_centroid = None
+            self.image_pane_2.clear_centroid_crosshair()
             self.h_proj_2.clear_fit()
             self.v_proj_2.clear_fit()
         self.roi_changed.emit(roi)
@@ -701,6 +737,34 @@ class BeamViewerWindow(QMainWindow):
             cp.overlay_show_roi_btn.setChecked(state.show_roi)
             cp.overlay_show_roi_btn.setText("✓  ROI" if state.show_roi else "ROI")
 
+    def _update_crosshair_display(self, live: Optional[tuple]) -> None:
+        """Update the crosshair overlay and drift label from the live centroid."""
+        ref = self._centroid_reference
+        if not self._crosshair_enabled or ref is None:
+            self.image_pane_2.clear_centroid_crosshair()
+            self.drift_label.hide()
+            return
+
+        rx, ry = ref
+        self.image_pane_2.set_centroid_crosshair(rx, ry, visible=True)
+
+        if live is not None:
+            dx_px = live[0] - rx
+            dy_px = live[1] - ry
+            if self._calibration.is_calibrated:
+                dx_um = self._calibration.pixel_to_um(dx_px)
+                dy_um = self._calibration.pixel_to_um(dy_px)
+                text = (
+                    f"Drift  Δx: {dx_px:+.1f} px ({dx_um:+.1f} µm)  "
+                    f"Δy: {dy_px:+.1f} px ({dy_um:+.1f} µm)"
+                )
+            else:
+                text = f"Drift  Δx: {dx_px:+.1f} px  Δy: {dy_px:+.1f} px"
+            self.drift_label.setText(text)
+            self.drift_label.show()
+        else:
+            self.drift_label.hide()
+
     def _update_roi(self) -> None:
         """Extract the ROI from the cached frame and refresh the bottom pane.
 
@@ -725,6 +789,19 @@ class BeamViewerWindow(QMainWindow):
             self.image_pane_2.image_item.setPos(x0, y0)
 
         self.image_pane_2.set_image(roi_frame, self._last_frame_number)
+
+        # Compute live intensity-weighted centroid for drift tracking (cheap COM).
+        patch = roi_frame.astype(np.float64)
+        total = patch.sum()
+        if total > 0:
+            col_idx = np.arange(x0, x0 + roi_frame.shape[1], dtype=np.float64)
+            row_idx = np.arange(y0, y0 + roi_frame.shape[0], dtype=np.float64)
+            cx_live = float(np.dot(patch.sum(axis=0), col_idx) / total)
+            cy_live = float(np.dot(patch.sum(axis=1), row_idx) / total)
+            self._live_roi_centroid = (cx_live, cy_live)
+        else:
+            self._live_roi_centroid = None
+        self._update_crosshair_display(self._live_roi_centroid)
 
         # Compute projections synchronously — just array summations, fast.
         x_proj, y_proj = compute_projections(roi_frame)
@@ -774,6 +851,26 @@ class BeamViewerWindow(QMainWindow):
             )
         else:
             self.v_proj_2.clear_fit()
+
+    # ------------------------------------------------------------------
+    # Centroid crosshair public API (called by controller)
+    # ------------------------------------------------------------------
+
+    def restore_centroid_reference(self, xy: Optional[tuple]) -> None:
+        """Restore a saved centroid reference without triggering save-to-config."""
+        self._centroid_reference = xy
+        self.control_panel.show_crosshair_btn.setEnabled(xy is not None)
+        self._update_crosshair_display(self._live_roi_centroid)
+
+    def restore_crosshair_enabled(self, enabled: bool) -> None:
+        """Restore the crosshair toggle state without emitting the toggle signal."""
+        self._crosshair_enabled = enabled
+        with _block_signals(self.control_panel.show_crosshair_btn):
+            self.control_panel.show_crosshair_btn.setChecked(enabled)
+            self.control_panel.show_crosshair_btn.setText(
+                "✓  Show Centroid Ref" if enabled else "Show Centroid Ref"
+            )
+        self._update_crosshair_display(self._live_roi_centroid)
 
     # ------------------------------------------------------------------
     # Calibration

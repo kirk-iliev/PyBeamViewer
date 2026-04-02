@@ -306,3 +306,41 @@ def set_active_background_path(prefix: str, path: Optional[Path | str]) -> None:
         else:
             active[prefix] = str(path)
         _atomic_write_config(config_path, config)
+
+
+# ---------------------------------------------------------------------------
+# Centroid reference persistence
+# ---------------------------------------------------------------------------
+
+def save_centroid_reference(prefix: str, x: float, y: float) -> None:
+    """Persist the centroid reference (x, y) for *prefix* in config.json."""
+    with _config_lock:
+        config_path = _get_config_path()
+        config = load_config()
+        refs: Dict[str, Any] = config.setdefault("centroid_references", {})
+        refs[prefix] = {"x": x, "y": y}
+        _atomic_write_config(config_path, config)
+
+
+def get_centroid_reference(prefix: str) -> Optional[tuple]:
+    """Return the saved centroid reference ``(x, y)`` for *prefix*, or None."""
+    config = load_config()
+    entry = config.get("centroid_references", {}).get(prefix)
+    if entry is None:
+        return None
+    return (float(entry["x"]), float(entry["y"]))
+
+
+def save_crosshair_enabled(enabled: bool) -> None:
+    """Persist the crosshair visibility toggle in config.json."""
+    with _config_lock:
+        config_path = _get_config_path()
+        config = load_config()
+        config["crosshair_enabled"] = enabled
+        _atomic_write_config(config_path, config)
+
+
+def get_crosshair_enabled() -> bool:
+    """Return the saved crosshair visibility toggle, defaulting to False."""
+    config = load_config()
+    return bool(config.get("crosshair_enabled", False))

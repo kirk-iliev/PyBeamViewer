@@ -45,6 +45,10 @@ from config.config import (
     list_saved_backgrounds,
     get_active_background_path,
     set_active_background_path,
+    save_centroid_reference,
+    get_centroid_reference,
+    save_crosshair_enabled,
+    get_crosshair_enabled,
 )
 from core.epics_layer import EpicsWorker, epics_get, epics_put
 from gui import BeamViewerWindow
@@ -114,6 +118,8 @@ class BeamController(QObject):
         self.gui.load_background_requested.connect(self._on_load_background_requested)
         self.gui.overlay_settings_changed.connect(self._on_overlay_settings_changed)
         self.gui.roi_fit_requested.connect(self._on_roi_fit_requested)
+        self.gui.centroid_reference_changed.connect(self._on_centroid_reference_changed)
+        self.gui.crosshair_toggled.connect(self._on_crosshair_toggled_save)
 
         # --- thread-safe RBV update signals ---
         self._exposure_rbv_updated.connect(self.gui.set_exposure_rbv)
@@ -156,6 +162,9 @@ class BeamController(QObject):
         self.gui.restore_overlay_state(OverlayState.from_dict(overlay_dict))
         # Restore active background for the current prefix
         self._restore_background_for_prefix(self._active_prefix)
+        # Restore centroid crosshair state
+        self.gui.restore_crosshair_enabled(get_crosshair_enabled())
+        self.gui.restore_centroid_reference(get_centroid_reference(self._active_prefix))
 
     def stop(self) -> None:
         """Gracefully shut down both worker threads."""
@@ -288,6 +297,9 @@ class BeamController(QObject):
 
         # Save current prefix bg state, then restore the new prefix's background
         self._restore_background_for_prefix(prefix)
+
+        # Restore centroid reference for the new prefix
+        self.gui.restore_centroid_reference(get_centroid_reference(prefix))
 
     def _refresh_camera_settings(self) -> None:
         """Read exposure and gain RBVs from EPICS in a background thread."""
@@ -495,3 +507,13 @@ class BeamController(QObject):
     def _on_overlay_settings_changed(self, state: object) -> None:
         """Persist overlay settings whenever they change."""
         save_overlay_settings(state.to_dict())  # type: ignore[union-attr]
+
+    @pyqtSlot(float, float)
+    def _on_centroid_reference_changed(self, x: float, y: float) -> None:
+        """Persist the centroid reference for the active prefix."""
+        save_centroid_reference(self._active_prefix, x, y)
+
+    @pyqtSlot(bool)
+    def _on_crosshair_toggled_save(self, enabled: bool) -> None:
+        """Persist the crosshair visibility toggle."""
+        save_crosshair_enabled(enabled)

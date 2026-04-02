@@ -154,6 +154,16 @@ class ControlPanel(QWidget):
         self.center_roi_btn.setEnabled(False)
         analysis_lay.addWidget(self.center_roi_btn)
 
+        self.show_crosshair_btn = QPushButton("Show Centroid Ref")
+        self.show_crosshair_btn.setCheckable(True)
+        self.show_crosshair_btn.setChecked(False)
+        self.show_crosshair_btn.setMinimumHeight(28)
+        self.show_crosshair_btn.setEnabled(False)
+        self.show_crosshair_btn.setToolTip(
+            "Overlay a crosshair at the last centered position and show beam drift"
+        )
+        analysis_lay.addWidget(self.show_crosshair_btn)
+
         lay.addWidget(analysis_grp)
 
         # ── Image Settings ────────────────────────────────────────

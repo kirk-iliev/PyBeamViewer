@@ -52,6 +52,8 @@
     "colormap_name": "hot"
   },
   "roi_selections": {},
+  "centroid_references": {},
+  "crosshair_enabled": false,
   "overlay": {
     "h_enabled": false,
     "h_side": "bottom",

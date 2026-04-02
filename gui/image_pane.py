@@ -129,7 +129,46 @@ class ImagePane(QWidget):
         self._v_overlay_curve.hide()
         self._v_fill.hide()
 
+        # --- Centroid reference crosshair (green circle + cross arms) ---
+        _xhair_pen = pg.mkPen("#00ff00", width=1.5)
+        self._crosshair_h = pg.PlotDataItem(pen=_xhair_pen)
+        self._crosshair_v = pg.PlotDataItem(pen=_xhair_pen)
+        self._crosshair_circle = pg.ScatterPlotItem(
+            symbol='o', size=24,
+            pen=pg.mkPen("#00ff00", width=1.5),
+            brush=pg.mkBrush(None),
+        )
+        self.plot.addItem(self._crosshair_h)
+        self.plot.addItem(self._crosshair_v)
+        self.plot.addItem(self._crosshair_circle)
+        self._crosshair_h.hide()
+        self._crosshair_v.hide()
+        self._crosshair_circle.hide()
+
         self._apply_header_style(theme)
+
+    # ------------------------------------------------------------------
+    # Centroid crosshair API
+    # ------------------------------------------------------------------
+
+    def set_centroid_crosshair(self, cx: float, cy: float, visible: bool) -> None:
+        """Show or hide the centroid reference crosshair at (cx, cy)."""
+        if not visible:
+            self.clear_centroid_crosshair()
+            return
+        arm = 12.0
+        self._crosshair_h.setData([cx - arm, cx + arm], [cy, cy])
+        self._crosshair_v.setData([cx, cx], [cy - arm, cy + arm])
+        self._crosshair_circle.setData([cx], [cy])
+        self._crosshair_h.show()
+        self._crosshair_v.show()
+        self._crosshair_circle.show()
+
+    def clear_centroid_crosshair(self) -> None:
+        """Hide the centroid reference crosshair."""
+        self._crosshair_h.hide()
+        self._crosshair_v.hide()
+        self._crosshair_circle.hide()
 
     # ------------------------------------------------------------------
     # Projection overlay API
