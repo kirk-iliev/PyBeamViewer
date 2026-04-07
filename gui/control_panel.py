@@ -6,11 +6,13 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSlider,
     QSpinBox,
     QVBoxLayout,
@@ -31,7 +33,25 @@ class ControlPanel(QWidget):
         super().__init__(parent)
         self.setMinimumWidth(320)
         self.setMaximumWidth(320)
-        lay = QVBoxLayout(self)
+
+        # Outer layout holds only the scroll area — no margins so the
+        # scroll area fills the full 320 px width.
+        outer_lay = QVBoxLayout(self)
+        outer_lay.setContentsMargins(0, 0, 0, 0)
+        outer_lay.setSpacing(0)
+
+        # Scroll area: vertical scroll only, no frame border.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setFrameShape(QFrame.NoFrame)
+        outer_lay.addWidget(scroll)
+
+        # Content widget that actually owns all the group boxes.
+        _content = QWidget()
+        scroll.setWidget(_content)
+        lay = QVBoxLayout(_content)
         lay.setContentsMargins(6, 6, 6, 6)
         lay.setSpacing(8)
 
