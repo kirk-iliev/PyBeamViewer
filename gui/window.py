@@ -53,6 +53,7 @@ from .image_pane import ImagePane
 from .overlay_state import OverlayState
 from .projection_plot import ProjectionPlot
 from .theme import DARK, LIGHT, Theme, _MONO
+from .trending_panel import TrendingPanel
 
 
 @contextmanager
@@ -87,6 +88,7 @@ class BeamViewerWindow(QMainWindow):
     roi_fit_requested = pyqtSignal(object, np.ndarray)  # (roi_coords_tuple, roi_frame_copy)
     centroid_reference_changed = pyqtSignal(float, float)  # (cx, cy) after Center ROI
     crosshair_toggled = pyqtSignal(bool)  # crosshair visibility toggle
+    trending_depth_changed = pyqtSignal(int)  # history depth in frames
 
     def __init__(self, fallback_shape: Optional[tuple] = None, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -98,6 +100,7 @@ class BeamViewerWindow(QMainWindow):
         self._centroid_reference: Optional[tuple] = None  # (cx, cy) in full-image coords
         self._crosshair_enabled: bool = False
         self._live_roi_centroid: Optional[tuple] = None  # updated each frame
+        self._trending_visible: bool = False
 
         self.setWindowTitle("Beam Profile Viewer")
         self.resize(1500, 920)
@@ -170,8 +173,14 @@ class BeamViewerWindow(QMainWindow):
         proj_lay.addWidget(self.v_proj_2, stretch=1)
         inner.addWidget(proj_col)
 
+        #  ┌── trending panel ──┐  (initially hidden)
+        self.trending_panel = TrendingPanel(self._theme)
+        self.trending_panel.hide()
+        inner.addWidget(self.trending_panel)
+
         inner.setStretchFactor(0, 2)   # images
         inner.setStretchFactor(1, 3)   # projections
+        inner.setStretchFactor(2, 2)   # trending
 
         # ROI section (bottom pane + ROI projections) hidden until the user
         # draws a selection on the full image.
@@ -262,6 +271,12 @@ class BeamViewerWindow(QMainWindow):
         cp.overlay_show_full_btn.toggled.connect(self._on_overlay_changed)
         cp.overlay_show_roi_btn.toggled.connect(self._on_overlay_changed)
 
+        # Trending panel controls
+        cp.trending_btn.toggled.connect(self._on_trending_toggled)
+        cp.trending_depth_input.valueChanged.connect(
+            self.trending_depth_changed.emit,
+        )
+
     # ------------------------------------------------------------------
     # Theme toggle
     # ------------------------------------------------------------------
@@ -295,6 +310,8 @@ class BeamViewerWindow(QMainWindow):
 
         for pane in (self.image_pane_1, self.image_pane_2):
             pane.apply_theme(theme)
+
+        self.trending_panel.apply_theme(theme)
 
         self.drift_label.setStyleSheet(
             f"color: #00cc44; font-size: 11px; font-family: {_MONO}; "
@@ -410,18 +427,32 @@ class BeamViewerWindow(QMainWindow):
             "✓  Show Centroid Ref" if checked else "Show Centroid Ref"
         )
         self._update_crosshair_display(self._live_roi_centroid)
+        self.trending_panel.set_drift_visible(checked)
         self.crosshair_toggled.emit(checked)
+
+    def _on_trending_toggled(self, checked: bool) -> None:
+        """Show or hide the trending panel."""
+        self._trending_visible = checked
+        self.trending_panel.setVisible(checked)
+        self.control_panel.trending_btn.setText(
+            "✓  📈  Trending" if checked else "📈  Trending"
+        )
+        self.control_panel.trending_depth_input.setEnabled(checked)
+        if not checked:
+            self.trending_panel.clear()
 
     def _on_fit_full_toggled(self, checked: bool) -> None:
         self.control_panel.fit_full_btn.setText(
             "✓  Fit Full Image" if checked else "Fit Full Image"
         )
+        self.trending_panel.set_fit_full_visible(checked)
         self.fit_full_toggled.emit(checked)
 
     def _on_fit_roi_toggled(self, checked: bool) -> None:
         self.control_panel.fit_roi_btn.setText(
             "✓  Fit ROI" if checked else "Fit ROI"
         )
+        self.trending_panel.set_fit_roi_visible(checked)
         # ROI fitting is handled entirely in the GUI; just refresh
         self._update_roi()
 

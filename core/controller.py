@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 from analysis.analysis import analyze_frame
 from analysis.analysis_worker import AnalysisWorker
 from analysis.calibration import load_calibration
+from analysis.trending_buffer import TrendingBuffer
 from config.config import (
     get_available_prefixes,
     get_active_prefix,
@@ -83,6 +84,7 @@ class BeamController(QObject):
         self._active_prefix: str = get_active_prefix()
         self._roi_seq: int = 0
         self._roi_fit_running: bool = False
+        self._trending_buffer = TrendingBuffer(max_len=300)
 
         # --- create workers (not started yet) ---
         self._epics_worker = EpicsWorker(
@@ -120,6 +122,7 @@ class BeamController(QObject):
         self.gui.roi_fit_requested.connect(self._on_roi_fit_requested)
         self.gui.centroid_reference_changed.connect(self._on_centroid_reference_changed)
         self.gui.crosshair_toggled.connect(self._on_crosshair_toggled_save)
+        self.gui.trending_depth_changed.connect(self._on_trending_depth_changed)
 
         # --- thread-safe RBV update signals ---
         self._exposure_rbv_updated.connect(self.gui.set_exposure_rbv)
@@ -127,6 +130,7 @@ class BeamController(QObject):
         self._exposure_rbv_reverted.connect(self.gui.revert_exposure_spinbox)
         self._gain_rbv_reverted.connect(self.gui.revert_gain_spinbox)
         self._roi_fit_done.connect(self.gui.deliver_roi_fit_result)
+        self._roi_fit_done.connect(self._update_trending_roi)
 
         # --- initialise GUI state ---
         self.gui.set_available_prefixes(
@@ -243,6 +247,7 @@ class BeamController(QObject):
     def _on_analysis_done(self, analyzed_state: FrameState) -> None:
         self.state.frame_state = analyzed_state
         self.gui.update_display(analyzed_state)
+        self._append_trending_record(analyzed_state)
 
     @pyqtSlot(bool)
     def _on_connection_changed(self, connected: bool) -> None:
@@ -270,6 +275,10 @@ class BeamController(QObject):
         self.state.store_bg_enabled_for_prefix(
             old_prefix, self.state.bg_subtraction_enabled
         )
+
+        # Clear trending history for the outgoing prefix
+        self._trending_buffer.clear()
+        self.gui.trending_panel.clear()
 
         self._epics_worker.stop()
         self._active_prefix = prefix
@@ -517,3 +526,69 @@ class BeamController(QObject):
     def _on_crosshair_toggled_save(self, enabled: bool) -> None:
         """Persist the crosshair visibility toggle."""
         save_crosshair_enabled(enabled)
+
+    @pyqtSlot(int)
+    def _on_trending_depth_changed(self, depth: int) -> None:
+        """Resize the trending buffer when the user changes the history depth."""
+        self._trending_buffer.resize(depth)
+
+    # ------------------------------------------------------------------
+    # Trending data helpers
+    # ------------------------------------------------------------------
+
+    def _append_trending_record(self, fs: FrameState) -> None:
+        """Extract metrics from a completed FrameState and append to the
+        trending buffer.  ROI sigma fields are set to NaN here and
+        back-filled asynchronously when the ROI fit completes.
+        """
+        record: dict = {
+            "frame_number": float(fs.frame_number),
+            # Full-image fit metrics
+            "sigma_x": float("nan"),
+            "sigma_y": float("nan"),
+            "centroid_x": float("nan"),
+            "centroid_y": float("nan"),
+            # ROI metrics — populated later by _on_roi_fit_done_trending
+            "roi_sigma_x": float("nan"),
+            "roi_sigma_y": float("nan"),
+            # Drift — computed from window's live centroid vs reference
+            "drift_x": float("nan"),
+            "drift_y": float("nan"),
+        }
+
+        if fs.analysis is not None:
+            xf = fs.analysis.x_fit
+            yf = fs.analysis.y_fit
+            if xf is not None and xf.success:
+                record["sigma_x"] = xf.sigma_um if xf.sigma_um is not None else xf.sigma
+                record["centroid_x"] = xf.centroid
+            if yf is not None and yf.success:
+                record["sigma_y"] = yf.sigma_um if yf.sigma_um is not None else yf.sigma
+                record["centroid_y"] = yf.centroid
+
+        # Drift from the window's live centroid tracking
+        ref = self.gui._centroid_reference
+        live = self.gui._live_roi_centroid
+        if ref is not None and live is not None:
+            record["drift_x"] = live[0] - ref[0]
+            record["drift_y"] = live[1] - ref[1]
+
+        self._trending_buffer.append(record)
+
+        # Push to GUI if trending panel is visible
+        if self.gui._trending_visible:
+            self.gui.trending_panel.update(self._trending_buffer.get_history())
+
+    def _update_trending_roi(self, bp) -> None:
+        """Back-fill the latest trending buffer entry with ROI fit results."""
+        roi_sx = float("nan")
+        roi_sy = float("nan")
+        if bp.x_fit is not None and bp.x_fit.success:
+            roi_sx = bp.x_fit.sigma_um if bp.x_fit.sigma_um is not None else bp.x_fit.sigma
+        if bp.y_fit is not None and bp.y_fit.success:
+            roi_sy = bp.y_fit.sigma_um if bp.y_fit.sigma_um is not None else bp.y_fit.sigma
+        self._trending_buffer.update_latest_roi(roi_sx, roi_sy)
+
+        # Refresh trending display with updated data
+        if self.gui._trending_visible:
+            self.gui.trending_panel.update(self._trending_buffer.get_history())

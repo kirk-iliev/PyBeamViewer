@@ -164,6 +164,31 @@ class ControlPanel(QWidget):
         )
         analysis_lay.addWidget(self.show_crosshair_btn)
 
+        # Trending toggle + history depth
+        self.trending_btn = QPushButton("📈  Trending")
+        self.trending_btn.setCheckable(True)
+        self.trending_btn.setChecked(False)
+        self.trending_btn.setMinimumHeight(28)
+        self.trending_btn.setToolTip(
+            "Show time-series plots of fit results and centroid drift"
+        )
+        analysis_lay.addWidget(self.trending_btn)
+
+        trending_depth_row = QHBoxLayout()
+        trending_depth_row.setSpacing(6)
+        trending_depth_row.addWidget(QLabel("History:"))
+        self.trending_depth_input = QSpinBox()
+        self.trending_depth_input.setRange(50, 2000)
+        self.trending_depth_input.setSingleStep(50)
+        self.trending_depth_input.setValue(300)
+        self.trending_depth_input.setSuffix(" frames")
+        self.trending_depth_input.setEnabled(False)  # enabled when trending is on
+        self.trending_depth_input.setToolTip(
+            "Number of frames to display in the trending plots"
+        )
+        trending_depth_row.addWidget(self.trending_depth_input, stretch=1)
+        analysis_lay.addLayout(trending_depth_row)
+
         lay.addWidget(analysis_grp)
 
         # ── Image Settings ────────────────────────────────────────
