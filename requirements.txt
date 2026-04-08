@@ -4,6 +4,9 @@ pyqtgraph>=0.13
 numpy>=1.24
 scipy>=1.11
 caproto>=1.1
+fastapi>=0.111
+uvicorn>=0.30
+Pillow>=10.0
 
 # Development / testing (also declared in pyproject.toml [dev] extras)
 pytest>=8

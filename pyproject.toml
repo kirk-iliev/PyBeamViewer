@@ -15,6 +15,9 @@ dependencies = [
     "numpy>=1.24",
     "scipy>=1.11",
     "caproto>=1.1",
+    "fastapi>=0.111",
+    "uvicorn>=0.30",
+    "Pillow>=10.0",
 ]
 
 [project.optional-dependencies]
@@ -50,7 +53,7 @@ addopts = [
 # Coverage
 # ---------------------------------------------------------------------------
 [tool.coverage.run]
-source = ["analysis", "config", "core"]
+source = ["analysis", "config", "core", "api"]
 omit = ["*/legacy/*", "*/gui/*", "*/__pycache__/*"]
 
 [tool.coverage.report]

@@ -85,6 +85,7 @@ class BeamController(QObject):
         self._roi_seq: int = 0
         self._roi_fit_running: bool = False
         self._trending_buffer = TrendingBuffer(max_len=300)
+        self._api_bridge = None  # set by main.py after ApiBridge is created
 
         # --- create workers (not started yet) ---
         self._epics_worker = EpicsWorker(
@@ -248,6 +249,7 @@ class BeamController(QObject):
         self.state.frame_state = analyzed_state
         self.gui.update_display(analyzed_state)
         self._append_trending_record(analyzed_state)
+        self._broadcast_to_ws()
 
     @pyqtSlot(bool)
     def _on_connection_changed(self, connected: bool) -> None:
@@ -592,3 +594,23 @@ class BeamController(QObject):
         # Refresh trending display with updated data
         if self.gui._trending_visible:
             self.gui.trending_panel.update(self._trending_buffer.get_history())
+
+    # ------------------------------------------------------------------
+    # API WebSocket broadcasting
+    # ------------------------------------------------------------------
+
+    def set_api_bridge(self, bridge: object) -> None:
+        """Set the API bridge for WebSocket broadcasting."""
+        self._api_bridge = bridge
+
+    def _broadcast_to_ws(self) -> None:
+        """Push the latest frame data to WebSocket clients (if API is running)."""
+        if self._api_bridge is None:
+            return
+        try:
+            from api.server import schedule_ws_broadcast
+            payload = self._api_bridge.build_ws_frame_payload()
+            if payload is not None:
+                schedule_ws_broadcast(payload)
+        except Exception:
+            pass  # API not running or import not available

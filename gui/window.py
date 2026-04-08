@@ -281,6 +281,7 @@ class BeamViewerWindow(QMainWindow):
     # Theme toggle
     # ------------------------------------------------------------------
 
+    @pyqtSlot()
     def toggle_theme(self) -> None:
         """Switch between dark and light mode."""
         self._apply_theme(LIGHT if self._theme.name == "dark" else DARK)
@@ -456,9 +457,11 @@ class BeamViewerWindow(QMainWindow):
         # ROI fitting is handled entirely in the GUI; just refresh
         self._update_roi()
 
+    @pyqtSlot()
     def _on_clear_roi_clicked(self) -> None:
         self.image_pane_1.clear_roi()
 
+    @pyqtSlot()
     def _on_center_roi_clicked(self) -> None:
         """Re-center the ROI as a square around the intensity-weighted centroid."""
         if self._last_frame is None:

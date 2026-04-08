@@ -1,8 +1,8 @@
 """
 main.py — Application entry point.
 
-Creates the MVC components, wires them via the controller, and starts the
-Qt event loop.
+Creates the MVC components, wires them via the controller, starts the
+API server, and runs the Qt event loop.
 """
 
 from __future__ import annotations
@@ -47,6 +47,19 @@ def main() -> None:
             f"Failed to initialise the application:\n\n{traceback.format_exc()}",
         )
         sys.exit(1)
+
+    # --- API server ---
+    try:
+        from api.bridge import ApiBridge
+        from api.server import start_api_thread
+
+        bridge = ApiBridge(state, controller, window)
+        controller.set_api_bridge(bridge)
+        start_api_thread(bridge, host="127.0.0.1", port=8765)
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "Failed to start API server:\n%s", traceback.format_exc(),
+        )
 
     window.show()
     controller.start()
