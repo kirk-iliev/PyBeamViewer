@@ -84,14 +84,31 @@ def create_app(bridge: Any) -> FastAPI:
     # Health check
     @app.get("/health", tags=["System"])
     def health(bridge=Depends(get_bridge)):
-        status = bridge.get_streaming_status()
-        return {
-            "status": "ok",
-            "streaming": status["streaming"],
-            "connected": status["connected"],
-            "frame_count": status["frame_count"],
+        info = bridge.get_streaming_status()
+        connected = info["connected"]
+        streaming = info["streaming"]
+        frame_count = info["frame_count"]
+
+        if connected and streaming:
+            status = "ok"
+            reason = None
+        elif not connected:
+            status = "degraded"
+            reason = "EPICS disconnected"
+        else:
+            status = "degraded"
+            reason = "streaming paused"
+
+        result = {
+            "status": status,
+            "connected": connected,
+            "streaming": streaming,
+            "frame_count": frame_count,
             "ws_clients": ws_manager.connection_count,
         }
+        if reason is not None:
+            result["reason"] = reason
+        return result
 
     # Mount static files for the web frontend panel
     if _STATIC_DIR.is_dir():
