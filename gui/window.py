@@ -457,6 +457,12 @@ class BeamViewerWindow(QMainWindow):
         # ROI fitting is handled entirely in the GUI; just refresh
         self._update_roi()
 
+    @pyqtSlot("QVariant")
+    def _on_set_roi(self, roi: object) -> None:
+        """Set the ROI programmatically (called from the API bridge)."""
+        x0, y0, x1, y1 = roi  # type: ignore[misc]
+        self.image_pane_1.set_roi((int(x0), int(y0), int(x1), int(y1)))
+
     @pyqtSlot()
     def _on_clear_roi_clicked(self) -> None:
         self.image_pane_1.clear_roi()

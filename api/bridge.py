@@ -208,8 +208,10 @@ class ApiBridge:
 
     def set_roi(self, x0: int, y0: int, x1: int, y1: int) -> None:
         # ImagePane.set_roi modifies Qt widgets — must run on the main thread.
-        # Emit through the window signal which triggers _on_roi_changed.
-        self._window.image_pane_1.roi_changed.emit((x0, y0, x1, y1))
+        QMetaObject.invokeMethod(
+            self._window, "_on_set_roi", Qt.QueuedConnection,
+            Q_ARG("QVariant", (x0, y0, x1, y1)),
+        )
 
     def clear_roi(self) -> None:
         QMetaObject.invokeMethod(
