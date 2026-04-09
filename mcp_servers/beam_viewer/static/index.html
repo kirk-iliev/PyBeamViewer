@@ -13,6 +13,7 @@
     --text-dim: #888;
     --accent: #89b4fa;
     --green: #a6e3a1;
+    --yellow: #f9e2af;
     --red: #f38ba8;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -21,12 +22,12 @@
     background: var(--bg);
     color: var(--text);
     height: 100vh;
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
     overflow: hidden;
   }
 
-  /* -- Header bar -- */
+  /* -- Header bar -------------------------------------------------------- */
   .header {
     display: flex;
     align-items: center;
@@ -34,24 +35,11 @@
     padding: 8px 16px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
   }
   .header h1 { font-size: 14px; font-weight: 600; }
   .header-right { display: flex; align-items: center; gap: 16px; font-size: 12px; }
 
-  .status-dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    display: inline-block;
-    margin-right: 4px;
-  }
-  .status-dot.connected { background: var(--green); }
-  .status-dot.disconnected { background: var(--red); }
-
-  .stat-label { color: var(--text-dim); }
-  .stat-value { color: var(--text); font-weight: 600; }
-
-  /* -- Toolbar -- */
+  /* -- Toolbar ----------------------------------------------------------- */
   .toolbar {
     display: flex;
     align-items: center;
@@ -59,7 +47,6 @@
     padding: 6px 16px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
     font-size: 12px;
   }
   .toolbar label { color: var(--text-dim); }
@@ -74,9 +61,16 @@
   }
   .toolbar select:focus { outline: 1px solid var(--accent); }
 
-  /* -- Canvas area -- */
-  .canvas-wrap {
-    flex: 1;
+  /* -- Main content (image + control panel) ------------------------------ */
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Canvas area */
+  .canvas-area {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -95,6 +89,62 @@
     font-size: 14px;
     pointer-events: none;
   }
+
+  /* Control panel placeholder */
+  .control-panel {
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+    font-size: 12px;
+  }
+  .control-panel h2 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 12px;
+  }
+  .panel-placeholder {
+    color: var(--text-dim);
+    font-style: italic;
+    font-size: 11px;
+    line-height: 1.6;
+    padding: 8px;
+    border: 1px dashed var(--border);
+    border-radius: 4px;
+    margin-bottom: 12px;
+  }
+
+  /* -- Status bar -------------------------------------------------------- */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 4px 16px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 4px;
+  }
+  .status-dot.connected    { background: var(--green); }
+  .status-dot.reconnecting { background: var(--yellow); animation: pulse 1s ease-in-out infinite; }
+  .status-dot.disconnected { background: var(--red); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .stat-label { color: var(--text-dim); }
+  .stat-value { color: var(--text); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -103,10 +153,6 @@
 <div class="header">
   <h1>PyBeamViewer</h1>
   <div class="header-right">
-    <span>
-      <span class="status-dot disconnected" id="statusDot"></span>
-      <span id="statusText">Disconnected</span>
-    </span>
     <span>
       <span class="stat-label">Frame</span>
       <span class="stat-value" id="frameNum">--</span>
@@ -132,205 +178,45 @@
   </select>
 </div>
 
-<!-- Canvas -->
-<div class="canvas-wrap">
-  <canvas id="beamCanvas" width="640" height="480"></canvas>
-  <div class="no-signal" id="noSignal">Waiting for frames...</div>
+<!-- Main content: image canvas + control panel -->
+<div class="main">
+  <div class="canvas-area">
+    <canvas id="beamCanvas" width="640" height="480"></canvas>
+    <div class="no-signal" id="noSignal">Waiting for frames...</div>
+  </div>
+
+  <div class="control-panel">
+    <h2>Controls</h2>
+    <div class="panel-placeholder">
+      Streaming, analysis, ROI, and overlay controls will appear here.
+    </div>
+    <h2>Analysis</h2>
+    <div class="panel-placeholder">
+      Beam fit results (sigma, centroid) will appear here.
+    </div>
+    <h2>Trending</h2>
+    <div class="panel-placeholder">
+      Trending plots will appear here.
+    </div>
+  </div>
 </div>
 
-<script>
-"use strict";
+<!-- Status bar -->
+<div class="status-bar">
+  <span>
+    <span class="status-dot disconnected" id="statusDot"></span>
+    <span id="statusText">Disconnected</span>
+  </span>
+  <span>
+    <span class="stat-label" id="dimLabel"></span>
+  </span>
+</div>
 
-// ---------------------------------------------------------------------------
-// Colormap lookup tables (256-entry RGB arrays)
-// ---------------------------------------------------------------------------
-function buildLUT(stops) {
-  // stops: [[pos, r, g, b], ...] where pos in [0,1]
-  const lut = new Uint8Array(256 * 3);
-  for (let i = 0; i < 256; i++) {
-    const t = i / 255;
-    let lo = 0;
-    for (let s = 1; s < stops.length; s++) {
-      if (stops[s][0] >= t) { lo = s - 1; break; }
-    }
-    const hi = lo + 1;
-    const range = stops[hi][0] - stops[lo][0];
-    const f = range > 0 ? (t - stops[lo][0]) / range : 0;
-    lut[i * 3]     = Math.round(stops[lo][1] + f * (stops[hi][1] - stops[lo][1]));
-    lut[i * 3 + 1] = Math.round(stops[lo][2] + f * (stops[hi][2] - stops[lo][2]));
-    lut[i * 3 + 2] = Math.round(stops[lo][3] + f * (stops[hi][3] - stops[lo][3]));
-  }
-  return lut;
-}
+<!-- Modular JS (order matters: colormaps -> renderer -> connection -> app) -->
+<script src="js/colormaps.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/connection.js"></script>
+<script src="js/app.js"></script>
 
-const COLORMAPS = {
-  gray: buildLUT([[0,0,0,0],[1,255,255,255]]),
-  hot: buildLUT([[0,0,0,0],[0.33,255,0,0],[0.66,255,255,0],[1,255,255,255]]),
-  viridis: buildLUT([[0,68,1,84],[0.25,59,82,139],[0.5,33,145,140],[0.75,94,201,98],[1,253,231,37]]),
-  inferno: buildLUT([[0,0,0,4],[0.25,87,16,110],[0.5,188,55,84],[0.75,249,142,9],[1,252,255,164]]),
-  plasma: buildLUT([[0,13,8,135],[0.25,126,3,168],[0.5,204,71,120],[0.75,248,149,64],[1,240,249,33]]),
-  magma: buildLUT([[0,0,0,4],[0.25,81,18,124],[0.5,183,55,121],[0.75,254,159,109],[1,252,253,191]]),
-  cividis: buildLUT([[0,0,32,77],[0.25,59,77,107],[0.5,124,123,120],[0.75,194,171,100],[1,255,234,70]]),
-};
-
-// ---------------------------------------------------------------------------
-// DOM references
-// ---------------------------------------------------------------------------
-const canvas      = document.getElementById("beamCanvas");
-const ctx         = canvas.getContext("2d");
-const statusDot   = document.getElementById("statusDot");
-const statusText  = document.getElementById("statusText");
-const frameNum    = document.getElementById("frameNum");
-const fpsVal      = document.getElementById("fpsVal");
-const cmapSelect  = document.getElementById("cmapSelect");
-const noSignal    = document.getElementById("noSignal");
-
-let currentCmap = "hot";
-let ws = null;
-let reconnectTimer = null;
-let hasReceivedFrame = false;
-
-// ---------------------------------------------------------------------------
-// Colormap selector — also pushes to server REST API
-// ---------------------------------------------------------------------------
-cmapSelect.addEventListener("change", function() {
-  currentCmap = this.value;
-  // Inform the server so other consumers stay in sync
-  fetch("../display/colormap", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({name: currentCmap}),
-  }).catch(function() { /* best effort */ });
-});
-
-// On load, fetch current server colormap
-fetch("../display/colormap")
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
-    if (data.current && COLORMAPS[data.current]) {
-      currentCmap = data.current;
-      cmapSelect.value = currentCmap;
-    }
-  })
-  .catch(function() {});
-
-// ---------------------------------------------------------------------------
-// Apply colormap to grayscale image data on canvas
-// ---------------------------------------------------------------------------
-function applyColormap(grayPixels, width, height) {
-  canvas.width = width;
-  canvas.height = height;
-  const imgData = ctx.createImageData(width, height);
-  const lut = COLORMAPS[currentCmap] || COLORMAPS.gray;
-  const d = imgData.data;
-  for (let i = 0, len = grayPixels.length; i < len; i++) {
-    const v = grayPixels[i];
-    const o = i * 4;
-    const l = v * 3;
-    d[o]     = lut[l];
-    d[o + 1] = lut[l + 1];
-    d[o + 2] = lut[l + 2];
-    d[o + 3] = 255;
-  }
-  ctx.putImageData(imgData, 0, 0);
-}
-
-// ---------------------------------------------------------------------------
-// Decode JPEG, extract grayscale, apply colormap
-// ---------------------------------------------------------------------------
-function renderFrame(jpegB64) {
-  const img = new Image();
-  img.onload = function() {
-    const w = img.naturalWidth;
-    const h = img.naturalHeight;
-
-    // Draw JPEG to an offscreen canvas to get pixel data
-    const off = new OffscreenCanvas(w, h);
-    const offCtx = off.getContext("2d");
-    offCtx.drawImage(img, 0, 0);
-    const src = offCtx.getImageData(0, 0, w, h).data;
-
-    // Extract grayscale channel (red channel — JPEG grayscale decoded as RGB)
-    const gray = new Uint8Array(w * h);
-    for (let i = 0, j = 0; i < src.length; i += 4, j++) {
-      gray[j] = src[i];
-    }
-
-    applyColormap(gray, w, h);
-
-    if (!hasReceivedFrame) {
-      hasReceivedFrame = true;
-      noSignal.style.display = "none";
-    }
-  };
-  img.src = "data:image/jpeg;base64," + jpegB64;
-}
-
-// ---------------------------------------------------------------------------
-// WebSocket connection
-// ---------------------------------------------------------------------------
-function setConnected(connected) {
-  if (connected) {
-    statusDot.className = "status-dot connected";
-    statusText.textContent = "Connected";
-  } else {
-    statusDot.className = "status-dot disconnected";
-    statusText.textContent = "Disconnected";
-  }
-}
-
-function connectWS() {
-  if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
-    return;
-  }
-
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const url = proto + "//" + location.host + "/frames/ws/stream";
-
-  ws = new WebSocket(url);
-
-  ws.onopen = function() {
-    setConnected(true);
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-  };
-
-  ws.onmessage = function(evt) {
-    let msg;
-    try { msg = JSON.parse(evt.data); } catch(e) { return; }
-
-    if (msg.type === "frame") {
-      if (msg.frame_jpeg_b64) {
-        renderFrame(msg.frame_jpeg_b64);
-      }
-      frameNum.textContent = msg.frame_number != null ? msg.frame_number : "--";
-      fpsVal.textContent = msg.fps != null ? msg.fps.toFixed(1) : "--";
-    }
-    // keepalive / pong messages are silently consumed
-  };
-
-  ws.onclose = function() {
-    setConnected(false);
-    scheduleReconnect();
-  };
-
-  ws.onerror = function() {
-    // onclose will fire after onerror
-  };
-}
-
-function scheduleReconnect() {
-  if (reconnectTimer) return;
-  reconnectTimer = setTimeout(function() {
-    reconnectTimer = null;
-    connectWS();
-  }, 2000);
-}
-
-// Start connection
-connectWS();
-</script>
 </body>
 </html>
