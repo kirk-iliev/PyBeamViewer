@@ -72,11 +72,12 @@ var Trending = (function() {
   // -----------------------------------------------------------------------
   var visible = false;
   var pollTimer = null;
-  var subplots = [];  // array of {canvas, def}
+  var subplots = [];  // array of {canvas, cell, def, active}
   var lastHistory = null;
   var panelEl = null;
   var toggleBtn = null;
   var depthInput = null;
+  var placeholderEl = null;
 
   // -----------------------------------------------------------------------
   // API helpers
@@ -294,7 +295,7 @@ var Trending = (function() {
       });
     }
 
-    // Create 3 sub-plot canvases (stacked vertically)
+    // Create 3 sub-plot canvases (stacked vertically, hidden until active)
     var stack = document.getElementById("trendingGrid");
     if (!stack) return;
 
@@ -303,12 +304,20 @@ var Trending = (function() {
       var def = SUBPLOT_DEFS[i];
       var cell = document.createElement("div");
       cell.className = "trending-cell";
+      cell.style.display = "none";  // hidden until enabled via WS state
       var canvas = document.createElement("canvas");
       canvas.className = "trending-canvas";
       cell.appendChild(canvas);
       stack.appendChild(cell);
-      subplots.push({ canvas: canvas, def: def });
+      subplots.push({ canvas: canvas, cell: cell, def: def, active: false });
     }
+
+    // Placeholder shown when trending is open but no sub-plots are active
+    placeholderEl = document.createElement("div");
+    placeholderEl.style.cssText = "flex:1;display:flex;align-items:center;" +
+      "justify-content:center;color:var(--text-dim);font-size:12px;";
+    placeholderEl.textContent = "Enable Fit ROI or Fit Full Image to show trends";
+    stack.appendChild(placeholderEl);
 
     // Load initial config
     fetchConfig().then(function(cfg) {
@@ -362,23 +371,49 @@ var Trending = (function() {
   }
 
   // -----------------------------------------------------------------------
-  // Render all sub-plots
+  // Sub-plot visibility (driven by WS analysis/drift state, like PyQt)
+  // -----------------------------------------------------------------------
+  function setSubplotActive(idx, active) {
+    if (idx < 0 || idx >= subplots.length) return;
+    var sp = subplots[idx];
+    if (sp.active === active) return;
+    sp.active = active;
+    sp.cell.style.display = active ? "" : "none";
+    // Update placeholder
+    if (placeholderEl) {
+      var anyActive = false;
+      for (var i = 0; i < subplots.length; i++) {
+        if (subplots[i].active) { anyActive = true; break; }
+      }
+      placeholderEl.style.display = anyActive ? "none" : "";
+    }
+    // Render immediately if we just became active and have data
+    if (active && lastHistory && lastHistory.count > 0) {
+      renderSubplot(idx);
+    }
+  }
+
+  function renderSubplot(idx) {
+    var sp = subplots[idx];
+    var fn = (lastHistory && lastHistory.frame_number) || [];
+    var def = sp.def;
+    drawDualChart(sp.canvas, lastHistory[def.keyA] || [], lastHistory[def.keyB] || [], fn, {
+      title: def.title,
+      labelA: def.labelA,
+      labelB: def.labelB,
+      colorA: def.colorA,
+      colorB: def.colorB,
+    });
+  }
+
+  // -----------------------------------------------------------------------
+  // Render all active sub-plots
   // -----------------------------------------------------------------------
   function renderAll() {
     if (!lastHistory || lastHistory.count === 0) return;
-    var fn = lastHistory.frame_number || [];
     for (var i = 0; i < subplots.length; i++) {
-      var sp = subplots[i];
-      var def = sp.def;
-      var dataA = lastHistory[def.keyA] || [];
-      var dataB = lastHistory[def.keyB] || [];
-      drawDualChart(sp.canvas, dataA, dataB, fn, {
-        title: def.title,
-        labelA: def.labelA,
-        labelB: def.labelB,
-        colorA: def.colorA,
-        colorB: def.colorB,
-      });
+      if (!subplots[i].active) continue;
+      renderSubplot(i);
     }
   }
 
@@ -405,10 +440,21 @@ var Trending = (function() {
   }
 
   /**
-   * Called from the main WS message handler — if trending data
-   * is included in the frame payload, update immediately.
+   * Called from the main WS message handler on every frame.
+   * Updates sub-plot visibility to match PyQt's conditional display logic:
+   *   subplot[0] Full Image Beam Size → when fit_full_enabled
+   *   subplot[1] ROI Beam Size        → when fit_roi_enabled
+   *   subplot[2] Centroid Drift       → when a centroid reference is set
    */
   function onWSMessage(msg) {
+    if (msg.analysis) {
+      setSubplotActive(0, !!msg.analysis.fit_full_enabled);
+      setSubplotActive(1, !!msg.analysis.fit_roi_enabled);
+    }
+    if (msg.drift !== undefined) {
+      setSubplotActive(2, !!(msg.drift && msg.drift.has_reference));
+    }
+
     if (msg.trending && visible) {
       lastHistory = msg.trending;
       renderAll();
