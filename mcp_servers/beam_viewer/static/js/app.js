@@ -55,8 +55,16 @@
   // -- Theme ---------------------------------------------------------------
   ThemeManager.init();
 
+  // -- Error states ---------------------------------------------------------
+  ErrorStates.init();
+
   // -- Projection plots ----------------------------------------------------
   Projections.init();
+
+  // -- Trending panel -------------------------------------------------------
+  if (typeof Trending !== "undefined") {
+    Trending.init();
+  }
 
   // -- Frame handler ------------------------------------------------------
   Connection.onFrame(function(msg) {
@@ -69,6 +77,9 @@
     // Update projection plots with projection + analysis data
     Projections.update(msg);
 
+    // Check for fit failures in analysis payload
+    ErrorStates.checkAnalysis(msg);
+
     // Update ROI overlay and panel
     if (typeof BeamROI !== "undefined") {
       BeamROI.updateFromFrame(msg.roi);
@@ -77,6 +88,11 @@
     // Feed state readback to the control panel
     if (typeof ControlPanel !== "undefined" && ControlPanel.onWSMessage) {
       ControlPanel.onWSMessage(msg);
+    }
+
+    // Forward to trending panel (opportunistic — trending data may be in WS payload)
+    if (typeof Trending !== "undefined" && Trending.onWSMessage) {
+      Trending.onWSMessage(msg);
     }
 
     if (!hasReceivedFrame) {
