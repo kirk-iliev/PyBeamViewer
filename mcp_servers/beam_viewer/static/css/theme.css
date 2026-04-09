@@ -18,6 +18,8 @@
   --text:      #e0e0e0;
   --text-dim:  #7a7a9a;
   --plot-bg:   #1a1a2e;
+  --plot-grid: rgba(255,255,255,0.08);
+  --plot-axis: #555;
   --image-bg:  #000000;
   --h-curve:   #00e5ff;
   --v-curve:   #ce93d8;
@@ -39,6 +41,8 @@
   --text:      #1a1a2e;
   --text-dim:  #6b6b85;
   --plot-bg:   #ffffff;
+  --plot-grid: rgba(0,0,0,0.08);
+  --plot-axis: #bbb;
   --image-bg:  #000000;
   --h-curve:   #0077b6;
   --v-curve:   #7b2d8b;
@@ -63,11 +67,11 @@ body {
                'JetBrains Mono', 'Fira Code', Consolas, monospace;
   background: var(--bg);
   color: var(--text);
-  width: 100%;        /* explicit: always fill viewport width        */
+  width: 100%;
   height: 100vh;
-  display: grid;
-  grid-template-rows: 1fr auto;
-  overflow: hidden;
+  display: flex;             /* flex-column: definite heights propagate   */
+  flex-direction: column;    /* to children (unlike grid 1fr which is not */
+  overflow: hidden;          /* considered definite in Firefox/Safari)     */
 }
 
 /* ------------------------------------------------------------------ */
@@ -75,9 +79,10 @@ body {
 /* Matches PyQt: outer_splitter with [inner content | control panel]   */
 /* ------------------------------------------------------------------ */
 .main {
+  flex: 1;               /* grow to fill body's flex height             */
+  min-height: 0;         /* allow shrinking below content height        */
   display: grid;
   grid-template-columns: 1fr 320px;
-  min-height: 0;
   overflow: hidden;
 }
 
@@ -359,6 +364,7 @@ body {
 /* Status bar (matches PyQt: theme toggle left, frame counter right)   */
 /* ------------------------------------------------------------------ */
 .status-bar {
+  flex: none;            /* never grow/shrink — always its natural height */
   display: flex;
   align-items: center;
   justify-content: space-between;

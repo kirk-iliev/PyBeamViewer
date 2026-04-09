@@ -19,37 +19,51 @@ var Trending = (function() {
   var POLL_INTERVAL_MS = 2000;
   var API_BASE = "..";
 
-  // 3 sub-plots matching PyQt's _TrendSubPlot instances
+  // 3 sub-plots matching PyQt's _TrendSubPlot instances.
+  // colorA/colorB starting with "--" are resolved as CSS custom properties
+  // at draw time so they follow the active theme automatically.
   var SUBPLOT_DEFS = [
     {
       title: "Full Image Beam Size",
       keyA: "sigma_x",     keyB: "sigma_y",
       labelA: "\u03C3x",   labelB: "\u03C3y",
-      colorA: "#00e5ff",    colorB: "#ce93d8",  // cyan + lavender (h/v curve)
+      colorA: "--h-curve",  colorB: "--v-curve",
     },
     {
       title: "ROI Beam Size",
       keyA: "roi_sigma_x",  keyB: "roi_sigma_y",
       labelA: "\u03C3x",    labelB: "\u03C3y",
-      colorA: "#00e5ff",     colorB: "#ce93d8",
+      colorA: "--h-curve",   colorB: "--v-curve",
     },
     {
       title: "Centroid Drift",
       keyA: "drift_x",      keyB: "drift_y",
       labelA: "\u0394x",    labelB: "\u0394y",
-      colorA: "#2ecc71",     colorB: "#e67e22",  // green + orange
+      colorA: "#2ecc71",     colorB: "#e67e22",  // green + orange (theme-independent)
     },
   ];
 
-  // Plot style
-  var COLORS = {
-    bg:       "#1a1a2a",
-    grid:     "rgba(255,255,255,0.08)",
-    axis:     "#555",
-    axisText: "#888",
-    text:     "#cdd6f4",
-    textDim:  "#888",
-  };
+  // Style helpers — read CSS custom properties at draw time so theme
+  // switches (dark ↔ light) are reflected without a page reload.
+  function getColors() {
+    var st = getComputedStyle(document.documentElement);
+    function v(n) { return st.getPropertyValue(n).trim(); }
+    return {
+      bg:       v("--plot-bg"),
+      grid:     v("--plot-grid"),
+      axis:     v("--plot-axis"),
+      axisText: v("--text-dim"),
+      text:     v("--text"),
+      textDim:  v("--text-dim"),
+    };
+  }
+
+  function resolveColor(colorOrVar) {
+    if (colorOrVar && colorOrVar.charAt(0) === "-") {
+      return getComputedStyle(document.documentElement).getPropertyValue(colorOrVar).trim();
+    }
+    return colorOrVar;
+  }
 
   var PADDING = { top: 28, right: 10, bottom: 22, left: 50 };
 

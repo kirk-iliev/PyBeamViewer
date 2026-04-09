@@ -11,21 +11,25 @@
 var Projections = (function() {
 
   // -----------------------------------------------------------------------
-  // Style constants (match dark theme from index.html)
+  // Style helpers — read CSS custom properties at draw time so that
+  // theme switches (dark ↔ light) are picked up without a page reload.
   // -----------------------------------------------------------------------
-  // Colors match gui/theme.py DARK. CSS vars used where possible.
-  var COLORS = {
-    bg:        "#1a1a2e",
-    grid:      "rgba(255,255,255,0.08)",
-    axis:      "#555",
-    axisText:  "#888",
-    hCurve:    "#00e5ff",   // theme.h_curve (dark) — cyan
-    vCurve:    "#ce93d8",   // theme.v_curve (dark) — lavender
-    fitCurve:  "#ff5555",   // theme.fit_curve (dark) — red dashed
-    roiCurve:  "rgba(243,139,168,0.7)",
-    textDim:   "#7a7a9a",
-    text:      "#e0e0e0",
-  };
+  function getColors() {
+    var st = getComputedStyle(document.documentElement);
+    function v(n) { return st.getPropertyValue(n).trim(); }
+    return {
+      bg:       v("--plot-bg"),
+      grid:     v("--plot-grid"),
+      axis:     v("--plot-axis"),
+      axisText: v("--text-dim"),
+      hCurve:   v("--h-curve"),
+      vCurve:   v("--v-curve"),
+      fitCurve: v("--fit-curve"),
+      roiCurve: "rgba(243,139,168,0.7)",
+      textDim:  v("--text-dim"),
+      text:     v("--text"),
+    };
+  }
 
   var PADDING = { top: 28, right: 12, bottom: 28, left: 50 };
   var FIT_DASH = [6, 4];
@@ -42,6 +46,7 @@ var Projections = (function() {
   // Generic plot renderer
   // -----------------------------------------------------------------------
   function drawPlot(canvas, projection, fitParams, opts) {
+    var COLORS = getColors();
     var ctx = canvas.getContext("2d");
     var dpr = window.devicePixelRatio || 1;
     var cw  = canvas.clientWidth;
@@ -308,6 +313,9 @@ var Projections = (function() {
     clearTimeout(_resizeTimer);
     _resizeTimer = setTimeout(redrawAll, 60);
   });
+
+  // Re-render immediately when theme switches so backgrounds update
+  window.addEventListener("themechange", redrawAll);
 
   return { init: init, update: update, updateROI: updateROI, redrawAll: redrawAll };
 })();
