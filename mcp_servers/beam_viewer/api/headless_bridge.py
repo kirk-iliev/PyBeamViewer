@@ -466,7 +466,7 @@ class HeadlessBridge:
             "frame_number": metadata["frame_number"],
             "timestamp": time.time(),
             "fps": metadata["fps"],
-            "frame_png_b64": _frame_to_png_b64(frame),
+            "frame_jpeg_b64": _frame_to_jpeg_b64(frame),
             "projections": projections,
             "analysis": {
                 "fit_full_enabled": analysis["fit_full_enabled"],
@@ -493,6 +493,38 @@ def _nan_to_none(value: Any) -> Any:
 def _ndarray_to_list(arr: np.ndarray) -> list:
     """Convert a numpy array to a list, replacing NaN with None."""
     return [None if math.isnan(v) else round(v, 6) for v in arr.tolist()]
+
+
+def _frame_to_jpeg_b64(frame: np.ndarray, quality: int = 80) -> str:
+    """Encode a 2D numpy frame as a base64 JPEG string.
+
+    Optimized for WebSocket streaming — smaller output than PNG at the
+    cost of lossy compression.  Normalizes to 8-bit grayscale before
+    encoding.
+
+    Parameters
+    ----------
+    frame : np.ndarray
+        2-D array (grayscale beam image), uint8 or uint16.
+    quality : int
+        JPEG quality (1-95). Default 80 balances size vs. fidelity.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return ""
+
+    f = frame.astype(np.float64)
+    fmin, fmax = f.min(), f.max()
+    if fmax > fmin:
+        normalized = ((f - fmin) / (fmax - fmin) * 255).astype(np.uint8)
+    else:
+        normalized = np.zeros_like(f, dtype=np.uint8)
+
+    img = Image.fromarray(normalized, mode="L")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 def _frame_to_png_b64(frame: np.ndarray) -> str:

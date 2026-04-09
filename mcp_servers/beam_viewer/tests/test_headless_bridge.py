@@ -598,7 +598,7 @@ class TestWSPayload:
         payload = bridge.build_ws_frame_payload()
         assert payload is not None
         assert payload["type"] == "frame"
-        assert "frame_png_b64" in payload
+        assert "frame_jpeg_b64" in payload
         assert "projections" in payload
         assert "analysis" in payload
         assert "roi" in payload
