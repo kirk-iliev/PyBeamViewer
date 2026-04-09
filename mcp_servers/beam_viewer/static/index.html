@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PyBeamViewer</title>
-<link rel="stylesheet" href="css/theme.css?v=14">
+<link rel="stylesheet" href="css/theme.css?v=15">
 </head>
 <body>
 
@@ -13,14 +13,14 @@
   <div class="viewer-area">
     <div class="image-column">
       <div class="canvas-area">
-        <canvas id="beamCanvas" width="640" height="480"></canvas>
+        <canvas id="beamCanvas"></canvas>
         <div class="no-signal" id="noSignal">Waiting for frames...</div>
         <div class="disconnected-banner" id="disconnectedBanner">Disconnected</div>
         <div class="no-camera-banner" id="noCameraBanner">No camera configured. Select a camera prefix to begin.</div>
       </div>
       <!-- ROI image pane (hidden until ROI drawn, matches PyQt image_pane_2) -->
       <div class="canvas-area roi-pane" id="roiImagePane" style="display:none">
-        <canvas id="roiCanvas" width="640" height="480"></canvas>
+        <canvas id="roiCanvas"></canvas>
         <div class="roi-pane-label">ROI</div>
       </div>
     </div>
@@ -71,18 +71,18 @@
 </div>
 
 <!-- Modular JS (order matters: controls builds CP sections first, then roi/overlays append theirs) -->
-<script src="js/colormaps.js?v=14"></script>
-<script src="js/renderer.js?v=14"></script>
-<script src="js/axes.js?v=14"></script>
-<script src="js/projections.js?v=14"></script>
-<script src="js/connection.js?v=14"></script>
-<script src="js/errors.js?v=14"></script>
-<script src="js/theme.js?v=14"></script>
-<script src="js/controls.js?v=14"></script>
-<script src="js/roi.js?v=14"></script>
-<script src="js/overlays.js?v=14"></script>
-<script src="js/trending.js?v=14"></script>
-<script src="js/app.js?v=14"></script>
+<script src="js/colormaps.js?v=15"></script>
+<script src="js/renderer.js?v=15"></script>
+<script src="js/axes.js?v=15"></script>
+<script src="js/projections.js?v=15"></script>
+<script src="js/connection.js?v=15"></script>
+<script src="js/errors.js?v=15"></script>
+<script src="js/theme.js?v=15"></script>
+<script src="js/controls.js?v=15"></script>
+<script src="js/roi.js?v=15"></script>
+<script src="js/overlays.js?v=15"></script>
+<script src="js/trending.js?v=15"></script>
+<script src="js/app.js?v=15"></script>
 
 </body>
 </html>
