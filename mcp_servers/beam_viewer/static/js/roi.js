@@ -261,9 +261,32 @@ var BeamROI = (function () {
     if (!roiCtx) return;
     var img = new Image();
     img.onload = function () {
-      roiCanvas.width = img.naturalWidth;
-      roiCanvas.height = img.naturalHeight;
-      roiCtx.drawImage(img, 0, 0);
+      var w = img.naturalWidth;
+      var h = img.naturalHeight;
+      roiCanvas.width  = w;
+      roiCanvas.height = h;
+
+      // Apply the same colormap LUT as the main image
+      var off    = new OffscreenCanvas(w, h);
+      var offCtx = off.getContext("2d");
+      offCtx.drawImage(img, 0, 0);
+      var src  = offCtx.getImageData(0, 0, w, h).data;
+      var cmap = (typeof Renderer !== "undefined") ? Renderer.getCmap() : "hot";
+      var lut  = COLORMAPS[cmap] || COLORMAPS.gray;
+      var out  = roiCtx.createImageData(w, h);
+      var d    = out.data;
+      for (var i = 0, j = 0; i < src.length; i += 4, j++) {
+        var l = src[i] * 3;          // src is grayscale: R=G=B
+        d[j*4]     = lut[l];
+        d[j*4 + 1] = lut[l + 1];
+        d[j*4 + 2] = lut[l + 2];
+        d[j*4 + 3] = 255;
+      }
+      roiCtx.putImageData(out, 0, 0);
+
+      if (typeof Axes !== "undefined" && currentROI) {
+        Axes.updateROI(currentROI.x0, currentROI.y0, currentROI.x1, currentROI.y1);
+      }
     };
     img.src = "data:image/png;base64," + pngB64;
   }

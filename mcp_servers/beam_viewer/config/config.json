@@ -51,7 +51,9 @@
     "levels_interval": 30,
     "colormap_name": "hot"
   },
-  "roi_selections": {},
+  "roi_selections": {
+    "BL72": {"x0": 620, "y0": 620, "x1": 680, "y1": 680}
+  },
   "centroid_references": {},
   "crosshair_enabled": false,
   "overlay": {

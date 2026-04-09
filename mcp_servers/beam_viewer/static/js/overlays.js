@@ -24,7 +24,7 @@ var Overlays = (function() {
     h_side: "bottom",
     v_enabled: false,
     v_side: "right",
-    scale: 0.20,
+    scale: 0.25,
     show_full: true,
     show_roi: false,
   };
@@ -78,8 +78,7 @@ var Overlays = (function() {
   // Build control panel section
   // -----------------------------------------------------------------------
   var hToggle, vToggle, hSideSelect, vSideSelect, scaleSlider, scaleLabel;
-  var showFullBtn, showRoiBtn, crosshairToggle;
-  var driftLabel;
+  var showFullBtn, showRoiBtn;
 
   function buildControls() {
     var section = el("div", "cp-section");
@@ -87,7 +86,7 @@ var Overlays = (function() {
     var header = el("div", "cp-section-header");
     var chevron = el("span", "cp-chevron", "\u25BE");
     header.appendChild(chevron);
-    header.appendChild(document.createTextNode(" Overlays"));
+    header.appendChild(document.createTextNode(" Projection Overlays"));
     header.addEventListener("click", function() {
       if (body.style.display === "none") {
         body.style.display = "";
@@ -101,44 +100,39 @@ var Overlays = (function() {
 
     var body = el("div", "cp-section-body");
 
-    // -- Projection overlay toggles --
-    var projRow = el("div", "cp-btn-row");
+    // -- H Overlay row: toggle + side combo (matches PyQt grid row 0) --
+    var hRow = el("div", "cp-row");
     hToggle = el("button", "cp-btn cp-toggle", "H Overlay");
-    vToggle = el("button", "cp-btn cp-toggle", "V Overlay");
-    projRow.appendChild(hToggle);
-    projRow.appendChild(vToggle);
-    body.appendChild(projRow);
-
-    // -- Side selectors --
-    var sideRow = el("div", "cp-row");
-    var hLabel = el("label", "cp-label", "H side:");
+    hToggle.style.minWidth = "85px";
     hSideSelect = document.createElement("select");
     hSideSelect.className = "cp-select";
-    var hOpts = ["bottom", "top"];
-    hOpts.forEach(function(v) {
+    ["bottom", "top"].forEach(function(v) {
       var o = document.createElement("option");
-      o.value = v; o.textContent = v;
+      o.value = v; o.textContent = v.charAt(0).toUpperCase() + v.slice(1);
       hSideSelect.appendChild(o);
     });
-    sideRow.appendChild(hLabel);
-    sideRow.appendChild(hSideSelect);
-    body.appendChild(sideRow);
+    hSideSelect.value = settings.h_side;
+    hRow.appendChild(hToggle);
+    hRow.appendChild(hSideSelect);
+    body.appendChild(hRow);
 
-    var sideRow2 = el("div", "cp-row");
-    var vLabel = el("label", "cp-label", "V side:");
+    // -- V Overlay row: toggle + side combo (matches PyQt grid row 1) --
+    var vRow = el("div", "cp-row");
+    vToggle = el("button", "cp-btn cp-toggle", "V Overlay");
+    vToggle.style.minWidth = "85px";
     vSideSelect = document.createElement("select");
     vSideSelect.className = "cp-select";
-    var vOpts = ["right", "left"];
-    vOpts.forEach(function(v) {
+    ["left", "right"].forEach(function(v) {
       var o = document.createElement("option");
-      o.value = v; o.textContent = v;
+      o.value = v; o.textContent = v.charAt(0).toUpperCase() + v.slice(1);
       vSideSelect.appendChild(o);
     });
-    sideRow2.appendChild(vLabel);
-    sideRow2.appendChild(vSideSelect);
-    body.appendChild(sideRow2);
+    vSideSelect.value = settings.v_side;
+    vRow.appendChild(vToggle);
+    vRow.appendChild(vSideSelect);
+    body.appendChild(vRow);
 
-    // -- Scale slider --
+    // -- Scale slider (matches PyQt grid row 2) --
     var scaleRow = el("div", "cp-row");
     var sLabel = el("label", "cp-label", "Scale:");
     scaleSlider = document.createElement("input");
@@ -155,23 +149,17 @@ var Overlays = (function() {
     scaleRow.appendChild(scaleLabel);
     body.appendChild(scaleRow);
 
-    // -- Show full / ROI toggle --
-    var modeRow = el("div", "cp-btn-row");
-    showFullBtn = el("button", "cp-btn cp-toggle", "Full");
-    showRoiBtn = el("button", "cp-btn cp-toggle", "ROI");
+    // -- Show on row: label + Full + ROI (matches PyQt grid row 3) --
+    var modeRow = el("div", "cp-row");
+    var modeLabel = el("label", "cp-label", "Show on:");
+    showFullBtn = el("button", "cp-btn cp-toggle" + (settings.show_full ? " active" : ""), "\u2713  Full");
+    showFullBtn.style.flex = "1";
+    showRoiBtn = el("button", "cp-btn cp-toggle" + (settings.show_roi ? " active" : ""), "\u2713  ROI");
+    showRoiBtn.style.flex = "1";
+    modeRow.appendChild(modeLabel);
     modeRow.appendChild(showFullBtn);
     modeRow.appendChild(showRoiBtn);
     body.appendChild(modeRow);
-
-    // -- Crosshair toggle --
-    crosshairToggle = el("button", "cp-btn cp-toggle", "Crosshair");
-    crosshairToggle.style.width = "100%";
-    crosshairToggle.style.marginBottom = "6px";
-    body.appendChild(crosshairToggle);
-
-    // -- Drift label --
-    driftLabel = el("div", "cp-status-text", "\u0394x: --  \u0394y: --");
-    body.appendChild(driftLabel);
 
     section.appendChild(body);
     panel.appendChild(section);
@@ -227,13 +215,6 @@ var Overlays = (function() {
       pushSettings({show_roi: settings.show_roi});
       redraw();
     });
-
-    crosshairToggle.addEventListener("click", function() {
-      crosshairEnabled = !crosshairEnabled;
-      crosshairToggle.classList.toggle("active", crosshairEnabled);
-      postJSON("/centroid/crosshair", {enabled: crosshairEnabled}).catch(function() {});
-      redraw();
-    });
   }
 
   function pushSettings(partial) {
@@ -249,7 +230,6 @@ var Overlays = (function() {
     scaleLabel.textContent = (settings.scale * 100).toFixed(0) + "%";
     showFullBtn.classList.toggle("active", settings.show_full);
     showRoiBtn.classList.toggle("active", settings.show_roi);
-    crosshairToggle.classList.toggle("active", crosshairEnabled);
   }
 
   // -----------------------------------------------------------------------
@@ -263,7 +243,6 @@ var Overlays = (function() {
     if (lastMsg) {
       drawProjectionOverlays(lastMsg);
       drawCrosshair(lastMsg);
-      updateDriftLabel(lastMsg);
     }
   }
 
@@ -505,7 +484,10 @@ var Overlays = (function() {
       .then(function(r) { return r.json(); })
       .then(function(data) {
         crosshairEnabled = !!data.crosshair_enabled;
-        crosshairToggle.classList.toggle("active", crosshairEnabled);
+        // Sync the Show Centroid Ref button in controls.js if available
+        if (typeof ControlPanel !== "undefined" && ControlPanel.showCrosshairBtn) {
+          ControlPanel.showCrosshairBtn.classList.toggle("active", crosshairEnabled);
+        }
       })
       .catch(function() {});
 
@@ -536,9 +518,15 @@ var Overlays = (function() {
   // Public API
   // -----------------------------------------------------------------------
 
+  function setCrosshairEnabled(val) {
+    crosshairEnabled = val;
+    redraw();
+  }
+
   return {
     init: init,
     updateFromFrame: updateFromFrame,
+    setCrosshairEnabled: setCrosshairEnabled,
   };
 
 })();

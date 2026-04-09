@@ -176,11 +176,8 @@ var ControlPanel = (function() {
   var fitFullBtn = makeToggleButton("Fit Full Image", analysisBody, {active: true});
   var fitRoiBtn = makeToggleButton("Fit ROI", analysisBody);
 
-  var roiBtnRow = document.createElement("div");
-  roiBtnRow.className = "cp-btn-row";
-  analysisBody.appendChild(roiBtnRow);
-  var clearRoiBtn = makeButton("\u2715  Clear ROI", roiBtnRow, {disabled: true});
-  var centerRoiBtn = makeButton("\u2295  Center ROI", roiBtnRow, {disabled: true});
+  var clearRoiBtn = makeButton("\u2715  Clear ROI", analysisBody, {disabled: true});
+  var centerRoiBtn = makeButton("\u2295  Center ROI", analysisBody, {disabled: true});
 
   var showCrosshairBtn = makeToggleButton("Show Centroid Ref", analysisBody, {disabled: true});
 
@@ -284,6 +281,18 @@ var ControlPanel = (function() {
   // Center ROI
   centerRoiBtn.addEventListener("click", function() {
     api("/roi/center", {method: "POST"}).catch(function() {});
+  });
+
+  // Show Centroid Ref (crosshair) — delegates drawing to Overlays module
+  showCrosshairBtn.addEventListener("click", function() {
+    var nowActive = showCrosshairBtn.classList.contains("active");
+    var newState = !nowActive;
+    postJSON("/centroid/crosshair", {enabled: newState}).then(function() {
+      showCrosshairBtn.classList.toggle("active", newState);
+      if (typeof Overlays !== "undefined" && Overlays.setCrosshairEnabled) {
+        Overlays.setCrosshairEnabled(newState);
+      }
+    }).catch(function() {});
   });
 
   // Acquire background
@@ -422,6 +431,7 @@ var ControlPanel = (function() {
     init: init,
     clearRoiBtn: clearRoiBtn,
     centerRoiBtn: centerRoiBtn,
+    showCrosshairBtn: showCrosshairBtn,
   };
 
 })();

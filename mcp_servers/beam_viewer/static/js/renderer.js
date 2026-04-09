@@ -11,6 +11,7 @@
 var Renderer = (function() {
   var canvas = document.getElementById("beamCanvas");
   var ctx    = canvas.getContext("2d");
+  var _currentCmap = "hot";
 
   function applyColormap(grayPixels, width, height, cmapName) {
     canvas.width  = width;
@@ -28,9 +29,13 @@ var Renderer = (function() {
       d[o + 3] = 255;
     }
     ctx.putImageData(imgData, 0, 0);
+    if (typeof Axes !== "undefined") {
+      Axes.updateMain(width, height);
+    }
   }
 
   function renderFrame(jpegB64, cmapName) {
+    _currentCmap = cmapName;
     var img = new Image();
     img.onload = function() {
       var w = img.naturalWidth;
@@ -49,5 +54,8 @@ var Renderer = (function() {
     img.src = "data:image/jpeg;base64," + jpegB64;
   }
 
-  return { renderFrame: renderFrame };
+  return {
+    renderFrame: renderFrame,
+    getCmap: function() { return _currentCmap; },
+  };
 })();
