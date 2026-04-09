@@ -35,6 +35,7 @@
     <option value="magma">magma</option>
     <option value="cividis">cividis</option>
   </select>
+  <button class="cp-btn cp-toggle" id="trendingToggle">Trending</button>
   <button class="theme-toggle" id="themeToggle">Light Mode</button>
 </div>
 
@@ -44,17 +45,33 @@
     <div class="canvas-area">
       <canvas id="beamCanvas" width="640" height="480"></canvas>
       <div class="no-signal" id="noSignal">Waiting for frames...</div>
+      <div class="disconnected-banner" id="disconnectedBanner">Disconnected</div>
+      <div class="no-camera-banner" id="noCameraBanner">No camera configured. Select a camera prefix to begin.</div>
     </div>
     <div class="v-proj-area">
       <canvas id="vProjCanvas" class="proj-canvas"></canvas>
+      <div class="fit-failed-msg" id="vFitFailed">Fit failed</div>
     </div>
     <div class="h-proj-area">
       <canvas id="hProjCanvas" class="proj-canvas"></canvas>
+      <div class="fit-failed-msg" id="hFitFailed">Fit failed</div>
     </div>
     <div class="proj-corner"></div>
   </div>
 
   <div class="control-panel" id="controlPanel"></div>
+</div>
+
+<!-- Trending panel (toggled) -->
+<div class="trending-panel" id="trendingPanel" style="display:none">
+  <div class="trending-toolbar">
+    <span class="trending-title">Trending</span>
+    <label class="trending-depth-label">
+      Depth
+      <input type="number" id="trendingDepth" class="cp-input" min="50" max="2000" step="50" value="300">
+    </label>
+  </div>
+  <div class="trending-grid" id="trendingGrid"></div>
 </div>
 
 <!-- Status bar -->
@@ -68,14 +85,16 @@
   </span>
 </div>
 
-<!-- Modular JS (order: colormaps -> renderer -> projections -> roi -> connection -> theme -> controls -> app) -->
+<!-- Modular JS (order: colormaps -> renderer -> projections -> roi -> connection -> errors -> theme -> controls -> app) -->
 <script src="js/colormaps.js"></script>
 <script src="js/renderer.js"></script>
 <script src="js/projections.js"></script>
 <script src="js/roi.js"></script>
 <script src="js/connection.js"></script>
+<script src="js/errors.js"></script>
 <script src="js/theme.js"></script>
 <script src="js/controls.js"></script>
+<script src="js/trending.js"></script>
 <script src="js/app.js"></script>
 
 </body>
