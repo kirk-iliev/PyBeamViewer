@@ -61,6 +61,11 @@
   // -- Projection plots ----------------------------------------------------
   Projections.init();
 
+  // -- Overlays (projection overlays, crosshair, drift) ---------------------
+  if (typeof Overlays !== "undefined") {
+    Overlays.init();
+  }
+
   // -- Trending panel -------------------------------------------------------
   if (typeof Trending !== "undefined") {
     Trending.init();
@@ -83,6 +88,11 @@
     // Update ROI overlay and panel
     if (typeof BeamROI !== "undefined") {
       BeamROI.updateFromFrame(msg.roi);
+    }
+
+    // Update projection overlays, crosshair, and drift labels
+    if (typeof Overlays !== "undefined") {
+      Overlays.updateFromFrame(msg);
     }
 
     // Feed state readback to the control panel

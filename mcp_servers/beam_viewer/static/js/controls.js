@@ -194,8 +194,6 @@ var ControlPanel = (function() {
   cmapSelect.value = "hot";
   cmapRow.appendChild(cmapSelect);
 
-  var crosshairBtn = makeToggleButton("Show Crosshair", dispBody);
-
   // -----------------------------------------------------------------------
   // Event handlers
   // -----------------------------------------------------------------------
@@ -306,11 +304,6 @@ var ControlPanel = (function() {
       cmapSelect.value = toolbarCmap.value;
     });
   }
-
-  // Crosshair toggle (display only — no server endpoint for this yet)
-  crosshairBtn.addEventListener("click", function() {
-    crosshairBtn.classList.toggle("active");
-  });
 
   // -----------------------------------------------------------------------
   // Initialisation — fetch initial state from server
