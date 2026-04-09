@@ -52,6 +52,9 @@
     })
     .catch(function() {});
 
+  // -- Theme ---------------------------------------------------------------
+  ThemeManager.init();
+
   // -- Projection plots ----------------------------------------------------
   Projections.init();
 
@@ -65,6 +68,16 @@
 
     // Update projection plots with projection + analysis data
     Projections.update(msg);
+
+    // Update ROI overlay and panel
+    if (typeof BeamROI !== "undefined") {
+      BeamROI.updateFromFrame(msg.roi);
+    }
+
+    // Feed state readback to the control panel
+    if (typeof ControlPanel !== "undefined" && ControlPanel.onWSMessage) {
+      ControlPanel.onWSMessage(msg);
+    }
 
     if (!hasReceivedFrame) {
       hasReceivedFrame = true;

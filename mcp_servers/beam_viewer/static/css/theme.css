@@ -1,0 +1,317 @@
+/*
+ * Theme system — matches Qt DARK / LIGHT from gui/theme.py.
+ *
+ * All themed colours are exposed as CSS custom properties on :root.
+ * The active theme is selected by [data-theme="dark"|"light"] on <html>.
+ * Default is dark.
+ */
+
+/* ------------------------------------------------------------------ */
+/* Dark theme (default) — matches gui/theme.py DARK                    */
+/* ------------------------------------------------------------------ */
+:root,
+[data-theme="dark"] {
+  --bg:        #141423;
+  --surface:   #16213e;
+  --border:    #1a3a5c;
+  --accent:    #00adb5;
+  --text:      #e0e0e0;
+  --text-dim:  #7a7a9a;
+  --plot-bg:   #1a1a2e;
+  --image-bg:  #000000;
+  --h-curve:   #00e5ff;
+  --v-curve:   #ce93d8;
+  --fit-curve: #ff5555;
+  /* status colours */
+  --green:     #a6e3a1;
+  --yellow:    #f9e2af;
+  --red:       #f38ba8;
+}
+
+/* ------------------------------------------------------------------ */
+/* Light theme — matches gui/theme.py LIGHT                            */
+/* ------------------------------------------------------------------ */
+[data-theme="light"] {
+  --bg:        #f0f2f5;
+  --surface:   #ffffff;
+  --border:    #c8ccd8;
+  --accent:    #0077b6;
+  --text:      #1a1a2e;
+  --text-dim:  #6b6b85;
+  --plot-bg:   #ffffff;
+  --image-bg:  #000000;
+  --h-curve:   #0077b6;
+  --v-curve:   #7b2d8b;
+  --fit-curve: #c0392b;
+  /* status colours stay the same in light */
+  --green:     #2d9f3f;
+  --yellow:    #c08a00;
+  --red:       #c0392b;
+}
+
+/* ------------------------------------------------------------------ */
+/* Base reset + body                                                   */
+/* ------------------------------------------------------------------ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------------ */
+/* Header bar                                                          */
+/* ------------------------------------------------------------------ */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.header h1 { font-size: 14px; font-weight: 600; color: var(--accent); }
+.header-right { display: flex; align-items: center; gap: 16px; font-size: 12px; }
+
+/* ------------------------------------------------------------------ */
+/* Toolbar                                                             */
+/* ------------------------------------------------------------------ */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.toolbar label { color: var(--text-dim); }
+.toolbar select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.toolbar select:focus { outline: 1px solid var(--accent); }
+
+/* Theme toggle button */
+.theme-toggle {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  margin-left: auto;
+}
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ------------------------------------------------------------------ */
+/* Main content (image + projections + control panel)                  */
+/* ------------------------------------------------------------------ */
+.main {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Image + projection layout */
+.viewer-area {
+  display: grid;
+  grid-template-columns: 1fr 160px;
+  grid-template-rows: 1fr 140px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Canvas area */
+.canvas-area {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  background: var(--image-bg);
+}
+#beamCanvas {
+  image-rendering: pixelated;
+  max-width: 100%;
+  max-height: 100%;
+}
+.no-signal {
+  position: absolute;
+  color: var(--text-dim);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+/* Projection plot areas */
+.h-proj-area {
+  background: var(--plot-bg);
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+}
+.v-proj-area {
+  background: var(--plot-bg);
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+}
+.proj-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.proj-corner {
+  background: var(--plot-bg);
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+/* Control panel (right side) */
+.control-panel {
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  font-size: 12px;
+}
+.cp-section {
+  border-bottom: 1px solid var(--border);
+}
+.cp-section-header {
+  padding: 8px 10px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12px;
+  user-select: none;
+  color: var(--text);
+  background: rgba(255,255,255,0.03);
+}
+.cp-section-header:hover { background: rgba(255,255,255,0.06); }
+[data-theme="light"] .cp-section-header { background: rgba(0,0,0,0.02); }
+[data-theme="light"] .cp-section-header:hover { background: rgba(0,0,0,0.05); }
+.cp-chevron {
+  display: inline-block;
+  width: 12px;
+  text-align: center;
+  color: var(--text-dim);
+}
+.cp-section-body { padding: 6px 10px 10px; }
+.cp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.cp-label {
+  color: var(--text-dim);
+  flex-shrink: 0;
+  min-width: 80px;
+}
+.cp-select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 12px;
+  flex: 1;
+  min-width: 0;
+}
+.cp-select:focus { outline: 1px solid var(--accent); }
+.cp-input {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 12px;
+  width: 80px;
+  flex: 1;
+  min-width: 0;
+}
+.cp-input:focus { outline: 1px solid var(--accent); }
+.cp-btn {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+}
+.cp-btn:hover:not(:disabled) { border-color: var(--accent); }
+.cp-btn:disabled { opacity: 0.4; cursor: default; }
+.cp-toggle.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+[data-theme="light"] .cp-toggle.active { color: #fff; }
+.cp-btn-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.cp-btn-row .cp-btn,
+.cp-btn-row .cp-toggle { flex: 1; }
+.cp-section-body > .cp-btn,
+.cp-section-body > .cp-toggle {
+  width: 100%;
+  margin-bottom: 6px;
+}
+.cp-status-text {
+  color: var(--text-dim);
+  font-size: 11px;
+  text-align: center;
+  margin-bottom: 6px;
+  font-family: monospace;
+}
+.cp-bg-file-list { margin-top: 6px; }
+.cp-bg-file-list .cp-select { width: 100%; margin-bottom: 4px; }
+.cp-bg-file-list .cp-btn { width: 100%; }
+
+/* ------------------------------------------------------------------ */
+/* Status bar                                                          */
+/* ------------------------------------------------------------------ */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 4px 16px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 4px;
+}
+.status-dot.connected    { background: var(--green); }
+.status-dot.reconnecting { background: var(--yellow); animation: pulse 1s ease-in-out infinite; }
+.status-dot.disconnected { background: var(--red); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.stat-label { color: var(--text-dim); }
+.stat-value { color: var(--text); font-weight: 600; }
