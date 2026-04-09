@@ -45,6 +45,10 @@ COPY mcp_servers/beam_viewer/ /app/mcp_servers/beam_viewer/
 # Default configuration (entrypoint.sh will copy to /app/config/ if missing)
 COPY mcp_servers/beam_viewer/config/config.json /app/config.default/config.json
 
+# Entrypoint for first-start initialization
+COPY mcp_servers/beam_viewer/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # --------------------------------------------------------------------------
 # Environment
 # --------------------------------------------------------------------------
@@ -59,4 +63,5 @@ EXPOSE 8007
 # --------------------------------------------------------------------------
 # Default command — run the headless beam viewer server
 # --------------------------------------------------------------------------
-CMD ["python", "-m", "beam_viewer", "--host", "0.0.0.0", "--port", "8007"]
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["--host", "0.0.0.0", "--port", "8007"]
