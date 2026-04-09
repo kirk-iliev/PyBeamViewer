@@ -497,12 +497,14 @@ class HeadlessController:
 
         def _run() -> None:
             try:
+                # No x_offset/y_offset: centroid stays in ROI-local
+                # coordinates (0..roi_width) so the projection plot
+                # overlay renders at the correct position. Sigma/sigma_um
+                # are unaffected by axis shift.
                 bp = analyze_frame(
                     roi_frame,
                     do_fit=True,
                     calibration=self._calibration,
-                    x_offset=x0,
-                    y_offset=y0,
                 )
                 if seq == self._roi_seq:
                     self.dispatcher.emit(EVT_ROI_FIT_DONE, bp)
