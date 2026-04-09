@@ -1,0 +1,29 @@
+{
+  "name": "pybeamviewer",
+  "version": "1.0.0",
+  "description": "A PyQt5 GUI application for real-time beam profile visualization and Gaussian analysis using EPICS (Experimental Physics and Industrial Control System) camera data. The application uses an MVC architecture with multi-threaded workers to keep the GUI responsive during data acquisition and image processing.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "playwright": "^1.59.1",
+    "playwright-core": "^1.59.1"
+  },
+  "scripts": {
+    "test:e2e": "npx playwright test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kirk-iliev/PyBeamViewer.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/kirk-iliev/PyBeamViewer/issues"
+  },
+  "homepage": "https://github.com/kirk-iliev/PyBeamViewer#readme"
+}
