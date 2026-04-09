@@ -1,29 +1,62 @@
-FROM python:3.12-slim
+# --------------------------------------------------------------------------
+# PyBeamViewer — headless beam-viewer MCP server
+# --------------------------------------------------------------------------
+# Build:
+#   docker build -f docker/Dockerfile.beam-viewer -t beam-viewer-test .
+#
+# Run:
+#   docker run -p 8007:8007 beam-viewer-test
+# --------------------------------------------------------------------------
 
-# Install runtime Python dependencies (no Qt/X11 needed for headless)
+FROM python:3.12-slim AS base
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# --------------------------------------------------------------------------
+# Install Python dependencies
+# --------------------------------------------------------------------------
 RUN pip install --no-cache-dir \
-    caproto \
-    scipy \
-    numpy \
-    fastapi \
-    uvicorn \
-    pillow \
-    fastmcp \
-    websockets
+    "caproto>=1.1" \
+    "scipy>=1.11" \
+    "numpy>=1.24" \
+    "fastapi>=0.111" \
+    "uvicorn[standard]>=0.30" \
+    "Pillow>=10.0" \
+    "fastmcp>=0.1" \
+    "websockets>=12.0" \
+    "pydantic>=2.0"
 
-# Copy application source
-COPY mcp_servers/beam_viewer /app/beam_viewer
+# --------------------------------------------------------------------------
+# Copy source code
+# --------------------------------------------------------------------------
 
-# Copy default configuration
-COPY config/config.json /app/config.default/config.json
+# Top-level modules imported by beam_viewer core
+COPY analysis/            /app/analysis/
+COPY config/              /app/config/
+COPY core/                /app/core/
 
+# The beam_viewer MCP server package
+COPY mcp_servers/beam_viewer/ /app/mcp_servers/beam_viewer/
+
+# Default configuration (entrypoint.sh will copy to /app/config/ if missing)
+COPY mcp_servers/beam_viewer/config/config.json /app/config.default/config.json
+
+# --------------------------------------------------------------------------
 # Environment
-ENV PYTHONPATH=/app
-ENV MCP_TRANSPORT=http
-ENV MCP_PORT=8007
-ENV BEAMVIEWER_CONFIG=/app/config/config.json
-ENV OSPREY_CONFIG=/app/config/config.yml
+# --------------------------------------------------------------------------
+ENV MCP_TRANSPORT=http \
+    MCP_PORT=8007 \
+    BEAMVIEWER_CONFIG=/app/config/config.json \
+    OSPREY_CONFIG="" \
+    PYTHONPATH=/app:/app/mcp_servers
 
 EXPOSE 8007
 
-CMD ["python", "-m", "beam_viewer"]
+# --------------------------------------------------------------------------
+# Default command — run the headless beam viewer server
+# --------------------------------------------------------------------------
+CMD ["python", "-m", "beam_viewer", "--host", "0.0.0.0", "--port", "8007"]
