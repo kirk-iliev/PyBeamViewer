@@ -239,14 +239,15 @@ var Projections = (function() {
     _lastVProj = proj.y_projection || null;
     _lastVFit  = analysis.y_fit    || null;
 
+    var C = getColors();
     drawPlot(hCanvas, _lastHProj, _lastHFit, {
       title: "Horizontal Projection  (Full Image)",
-      curveColor: COLORS.hCurve,
+      curveColor: C.hCurve,
     });
 
     drawPlot(vCanvas, _lastVProj, _lastVFit, {
       title: "Vertical Projection  (Full Image)",
-      curveColor: COLORS.vCurve,
+      curveColor: C.vCurve,
     });
   }
 
@@ -268,41 +269,43 @@ var Projections = (function() {
     _lastROIVProj = projections.y_projection || null;
     _lastROIVFit  = yFit;
 
+    var C = getColors();
     drawPlot(roiHCanvas, _lastROIHProj, xFit, {
       title: "Horizontal Projection  (ROI)",
-      curveColor: COLORS.hCurve,
+      curveColor: C.hCurve,
     });
 
     drawPlot(roiVCanvas, _lastROIVProj, yFit, {
       title: "Vertical Projection  (ROI)",
-      curveColor: COLORS.vCurve,
+      curveColor: C.vCurve,
     });
   }
 
   /** Re-render all plots with the last known data (called on window resize). */
   function redrawAll() {
+    var C = getColors();
     if (hCanvas && _lastHProj) {
       drawPlot(hCanvas, _lastHProj, _lastHFit, {
         title: "Horizontal Projection  (Full Image)",
-        curveColor: COLORS.hCurve,
+        curveColor: C.hCurve,
       });
     }
     if (vCanvas && _lastVProj) {
       drawPlot(vCanvas, _lastVProj, _lastVFit, {
         title: "Vertical Projection  (Full Image)",
-        curveColor: COLORS.vCurve,
+        curveColor: C.vCurve,
       });
     }
     if (roiHCanvas && _lastROIHProj) {
       drawPlot(roiHCanvas, _lastROIHProj, _lastROIHFit, {
         title: "Horizontal Projection  (ROI)",
-        curveColor: COLORS.hCurve,
+        curveColor: C.hCurve,
       });
     }
     if (roiVCanvas && _lastROIVProj) {
       drawPlot(roiVCanvas, _lastROIVProj, _lastROIVFit, {
         title: "Vertical Projection  (ROI)",
-        curveColor: COLORS.vCurve,
+        curveColor: C.vCurve,
       });
     }
   }
