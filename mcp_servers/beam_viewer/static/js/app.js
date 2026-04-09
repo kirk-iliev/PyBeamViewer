@@ -52,6 +52,9 @@
     })
     .catch(function() {});
 
+  // -- Projection plots ----------------------------------------------------
+  Projections.init();
+
   // -- Frame handler ------------------------------------------------------
   Connection.onFrame(function(msg) {
     if (msg.frame_jpeg_b64) {
@@ -59,6 +62,9 @@
     }
     frameNum.textContent = msg.frame_number != null ? msg.frame_number : "--";
     fpsVal.textContent   = msg.fps != null ? msg.fps.toFixed(1) : "--";
+
+    // Update projection plots with projection + analysis data
+    Projections.update(msg);
 
     if (!hasReceivedFrame) {
       hasReceivedFrame = true;
