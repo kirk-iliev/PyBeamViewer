@@ -31,18 +31,30 @@ class WebSocketManager:
         log.info("WebSocket client disconnected (%d remaining)", len(self._connections))
 
     async def broadcast(self, payload: dict[str, Any]) -> None:
-        """Send a JSON payload to all connected clients."""
+        """Send a JSON payload to all connected clients concurrently.
+
+        Uses ``asyncio.gather`` so a slow client cannot block others.
+        Each send is wrapped in a 1-second timeout; connections that fail
+        or time out are evicted.
+        """
         async with self._lock:
             if not self._connections:
                 return
-            dead: list[WebSocket] = []
-            for ws in self._connections:
-                try:
-                    await ws.send_json(payload)
-                except Exception:
-                    dead.append(ws)
+            results = await asyncio.gather(
+                *(
+                    asyncio.wait_for(ws.send_json(payload), timeout=1.0)
+                    for ws in self._connections
+                ),
+                return_exceptions=True,
+            )
+            dead = [
+                ws
+                for ws, result in zip(self._connections, results)
+                if isinstance(result, BaseException)
+            ]
             for ws in dead:
                 self._connections.remove(ws)
+                log.debug("Evicted WebSocket client after failed send")
 
     @property
     def connection_count(self) -> int:
