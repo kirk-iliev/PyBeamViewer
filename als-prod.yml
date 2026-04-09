@@ -1,0 +1,8 @@
+web_panels:
+  beam-viewer:
+    url: "http://localhost:8007"
+    health_endpoint: "/health"
+
+mcp_servers:
+  beam_viewer:
+    url: "http://localhost:8007/mcp"

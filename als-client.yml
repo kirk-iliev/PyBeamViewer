@@ -1,0 +1,7 @@
+web_panels:
+  beam-viewer:
+    url: "http://appsdev2:8007"
+
+mcp_servers:
+  beam_viewer:
+    url: "http://appsdev2:8007/mcp"

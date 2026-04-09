@@ -1,0 +1,22 @@
+web_panels:
+  beam-viewer:
+    label: "BEAM"
+
+mcp_servers:
+  beam_viewer:
+    tools:
+      - beam_capture
+      - beam_status
+      - beam_set_camera
+      - beam_set_exposure
+      - beam_set_gain
+      - beam_analysis
+      - beam_roi_set
+      - beam_roi_clear
+      - beam_roi_center
+      - beam_background_acquire
+      - beam_background_toggle
+      - beam_trending
+      - beam_calibration
+      - beam_drift
+      - beam_config
