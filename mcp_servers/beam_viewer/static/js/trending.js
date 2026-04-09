@@ -103,6 +103,7 @@ var Trending = (function() {
   // Canvas chart renderer — dual-trace version
   // -----------------------------------------------------------------------
   function drawDualChart(canvas, dataA, dataB, frameNumbers, opts) {
+    var COLORS = getColors();
     var ctx = canvas.getContext("2d");
     var dpr = window.devicePixelRatio || 1;
     var cw = canvas.clientWidth;
@@ -226,12 +227,12 @@ var Trending = (function() {
 
     // Draw trace A
     if (hasA) {
-      drawTrace(ctx, dataA, n, xMap, yMap, opts.colorA);
+      drawTrace(ctx, dataA, n, xMap, yMap, resolveColor(opts.colorA));
     }
 
     // Draw trace B
     if (hasB) {
-      drawTrace(ctx, dataB, n, xMap, yMap, opts.colorB);
+      drawTrace(ctx, dataB, n, xMap, yMap, resolveColor(opts.colorB));
     }
 
     // Stats legend (top right, matching PyQt: "labelA: val  labelB: val")
@@ -395,6 +396,11 @@ var Trending = (function() {
       if (!visible) return;
       clearTimeout(_resizeTimer);
       _resizeTimer = setTimeout(renderAll, 60);
+    });
+
+    // Re-render immediately when theme switches so backgrounds update
+    window.addEventListener("themechange", function() {
+      if (visible) renderAll();
     });
   }
 

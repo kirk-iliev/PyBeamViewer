@@ -21,6 +21,7 @@ var ThemeManager = (function() {
     if (btn) {
       btn.textContent = theme === "dark" ? "\u2600  Light" : "\uD83C\uDF19  Dark";
     }
+    window.dispatchEvent(new CustomEvent("themechange"));
   }
 
   function toggle() {
