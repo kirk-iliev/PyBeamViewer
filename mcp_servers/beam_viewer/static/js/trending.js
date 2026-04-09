@@ -374,6 +374,14 @@ var Trending = (function() {
     buildPanel();
     // Start hidden
     if (panelEl) panelEl.style.display = "none";
+
+    // Re-render on window resize so charts stay crisp at any window size
+    var _resizeTimer = null;
+    window.addEventListener("resize", function() {
+      if (!visible) return;
+      clearTimeout(_resizeTimer);
+      _resizeTimer = setTimeout(renderAll, 60);
+    });
   }
 
   /**

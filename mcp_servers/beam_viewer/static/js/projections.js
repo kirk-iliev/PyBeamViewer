@@ -203,6 +203,12 @@ var Projections = (function() {
   var roiHCanvas = null;
   var roiVCanvas = null;
 
+  // Last-drawn data — used to re-render on window resize
+  var _lastHProj = null,   _lastHFit = null;
+  var _lastVProj = null,   _lastVFit = null;
+  var _lastROIHProj = null;
+  var _lastROIVProj = null;
+
   function init() {
     hCanvas = document.getElementById("hProjCanvas");
     vCanvas = document.getElementById("vProjCanvas");
@@ -223,12 +229,17 @@ var Projections = (function() {
     var proj = msg.projections || {};
     var analysis = msg.analysis || {};
 
-    drawPlot(hCanvas, proj.x_projection, analysis.x_fit, {
+    _lastHProj = proj.x_projection || null;
+    _lastHFit  = analysis.x_fit    || null;
+    _lastVProj = proj.y_projection || null;
+    _lastVFit  = analysis.y_fit    || null;
+
+    drawPlot(hCanvas, _lastHProj, _lastHFit, {
       title: "Horizontal Projection  (Full Image)",
       curveColor: COLORS.hCurve,
     });
 
-    drawPlot(vCanvas, proj.y_projection, analysis.y_fit, {
+    drawPlot(vCanvas, _lastVProj, _lastVFit, {
       title: "Vertical Projection  (Full Image)",
       curveColor: COLORS.vCurve,
     });
@@ -243,16 +254,54 @@ var Projections = (function() {
     if (!roiHCanvas || !roiVCanvas) return;
     if (!projections) return;
 
-    drawPlot(roiHCanvas, projections.x_projection, null, {
+    _lastROIHProj = projections.x_projection || null;
+    _lastROIVProj = projections.y_projection || null;
+
+    drawPlot(roiHCanvas, _lastROIHProj, null, {
       title: "Horizontal Projection  (ROI)",
       curveColor: COLORS.hCurve,
     });
 
-    drawPlot(roiVCanvas, projections.y_projection, null, {
+    drawPlot(roiVCanvas, _lastROIVProj, null, {
       title: "Vertical Projection  (ROI)",
       curveColor: COLORS.vCurve,
     });
   }
 
-  return { init: init, update: update, updateROI: updateROI };
+  /** Re-render all plots with the last known data (called on window resize). */
+  function redrawAll() {
+    if (hCanvas && _lastHProj) {
+      drawPlot(hCanvas, _lastHProj, _lastHFit, {
+        title: "Horizontal Projection  (Full Image)",
+        curveColor: COLORS.hCurve,
+      });
+    }
+    if (vCanvas && _lastVProj) {
+      drawPlot(vCanvas, _lastVProj, _lastVFit, {
+        title: "Vertical Projection  (Full Image)",
+        curveColor: COLORS.vCurve,
+      });
+    }
+    if (roiHCanvas && _lastROIHProj) {
+      drawPlot(roiHCanvas, _lastROIHProj, null, {
+        title: "Horizontal Projection  (ROI)",
+        curveColor: COLORS.hCurve,
+      });
+    }
+    if (roiVCanvas && _lastROIVProj) {
+      drawPlot(roiVCanvas, _lastROIVProj, null, {
+        title: "Vertical Projection  (ROI)",
+        curveColor: COLORS.vCurve,
+      });
+    }
+  }
+
+  // Re-render on window resize so plots stay crisp at any window size
+  var _resizeTimer = null;
+  window.addEventListener("resize", function() {
+    clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(redrawAll, 60);
+  });
+
+  return { init: init, update: update, updateROI: updateROI, redrawAll: redrawAll };
 })();
