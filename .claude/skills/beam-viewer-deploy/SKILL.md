@@ -1,19 +1,14 @@
----
-name: beam-viewer-deploy
-argument-hint: "[deploy | validate | debug | rebuild | cleanup | ci-plan]"
-description: >
-  Deploy, validate, and iteratively debug the PyBeamViewer headless container on appsdev2
-  (or appsml). Use this skill whenever working with the beam viewer container, testing against
-  live EPICS cameras, or diagnosing deployment failures. Triggers on: "deploy beam viewer",
-  "test beam viewer container", "build beam viewer image", "run beam viewer on appsdev2",
-  "validate beam viewer", "beam viewer not working", "check beam viewer", "rebuild beam viewer",
-  "beam viewer EPICS", "beam viewer WebSocket", "beam viewer web panel", "container test",
-  "push to appsdev2", "host networking EPICS", "camera PV not connecting".
----
-
 # Beam Viewer Deploy & Test
 
-Deploy the PyBeamViewer headless container to appsdev2, validate it against live EPICS cameras, debug failures, and iterate until everything works.
+Deploy the beam viewer headless container to appsdev2, validate it against live EPICS cameras, debug failures, and iterate until everything works.
+
+**Source of truth:** ALS GitLab — `https://git.als.lbl.gov/physics/production/beam-viewer`
+**GitHub (`origin`) is no longer used for deployment. Ignore it.**
+
+All code changes must be pushed to the `gitlab` remote before deploying:
+```bash
+git push gitlab <branch>
+```
 
 ## Why Host Networking Matters
 
@@ -25,13 +20,12 @@ Match the user's intent to one of these actions:
 
 | Intent | Action |
 |--------|--------|
-| First-time deploy or full redeploy | **Deploy** (sync → build → run → validate) |
-| Code changed, need to test again | **Rebuild** (stop → rebuild image → run → validate) |
+| First-time deploy or full redeploy | **Deploy** (push → pull → build → run → validate) |
+| Code changed, need to test again | **Rebuild** (push → pull → rebuild image → run → validate) |
 | Container is running, check if it works | **Validate** (run checks against running container) |
 | Something isn't working | **Debug** (inspect logs, check EPICS, targeted fixes) |
 | Check web panel matches PyQt layout | **Layout Parity** → read `references/layout-parity.md` |
 | Done testing | **Cleanup** (stop container, optionally remove image) |
-| Plan CI/CD integration with als-profiles | **CI Plan** → read `references/ci-integration.md` |
 
 ---
 
@@ -41,29 +35,40 @@ Match the user's intent to one of these actions:
 
 - SSH access to appsdev2 (`ssh appsdev2` works)
 - podman available on appsdev2
-- Working tree is on the branch you want to test (currently `api-test`)
+- Changes pushed to GitLab (`git push gitlab <branch>`)
 - No other process using port 8007 on appsdev2
 
-### Step 1: Sync code to appsdev2
+### Step 1: Push local changes to GitLab
+
+Always push first — appsdev2 pulls from GitLab, so unpushed commits won't be there.
 
 ```bash
-rsync -avz --exclude=node_modules --exclude=.coverage --exclude=__pycache__ \
-  --exclude=.git --exclude='*.pyc' --exclude=test-results \
-  /Users/thellert/LBL/ML/PyBeamViewer/ \
-  appsdev2:~/projects/PyBeamViewer/
+git push gitlab web-panel
 ```
 
-Why rsync instead of git clone: the branch may have uncommitted changes you want to test, and rsync is faster for iteration than push/pull cycles. The `--exclude=.git` keeps it lightweight.
+### Step 2: Pull on appsdev2
 
-### Step 2: Build the container image
+First time (fresh clone):
+```bash
+ssh appsdev2 "git clone https://oauth2:${ALS_GITLAB_TOKEN}@git.als.lbl.gov/physics/production/beam-viewer.git ~/projects/beam-viewer"
+```
+
+Subsequent pulls (repo already exists):
+```bash
+ssh appsdev2 "cd ~/projects/beam-viewer && git fetch origin && git checkout web-panel && git pull"
+```
+
+Note: Inside the cloned repo on appsdev2, the GitLab remote is called `origin` (it's a plain clone).
+
+### Step 3: Build the container image
 
 ```bash
-ssh appsdev2 "cd ~/projects/PyBeamViewer && podman build -f docker/Dockerfile.beam-viewer -t beam-viewer-test ."
+ssh appsdev2 "cd ~/projects/beam-viewer && podman build -f docker/Dockerfile.beam-viewer -t beam-viewer-test ."
 ```
 
-Watch for: pip install failures (network/proxy issues), missing source files (rsync exclude too aggressive), or Python version mismatches.
+Watch for: pip install failures (network/proxy issues), missing source files, or Python version mismatches.
 
-### Step 3: Run the container
+### Step 4: Run the container
 
 ```bash
 ssh appsdev2 "podman run -d --name beam-viewer-test \
@@ -74,7 +79,7 @@ ssh appsdev2 "podman run -d --name beam-viewer-test \
 
 The Dockerfile bakes in the ALS EPICS CA environment (`EPICS_CA_ADDR_LIST` with all ALS broadcast subnets, `EPICS_CA_AUTO_ADDR_LIST=NO`, `EPICS_CA_SERVER_PORT=5064`). Combined with `--network host` and `"host": ""` in config.json, caproto can discover IOCs across all ALS subnets via UDP broadcast. No manual `-e` flags needed.
 
-### Step 4: Validate
+### Step 5: Validate
 
 Run the validation script (see **Validate** below) or step through checks manually.
 
@@ -85,26 +90,26 @@ Run the validation script (see **Validate** below) or step through checks manual
 When you've fixed something locally and want to test again:
 
 ```bash
-# 1. Stop and remove the old container
+# 1. Push changes to GitLab
+git push gitlab web-panel
+
+# 2. Stop and remove the old container on appsdev2
 ssh appsdev2 "podman stop beam-viewer-test 2>/dev/null; podman rm beam-viewer-test 2>/dev/null"
 
-# 2. Re-sync changed files
-rsync -avz --exclude=node_modules --exclude=.coverage --exclude=__pycache__ \
-  --exclude=.git --exclude='*.pyc' --exclude=test-results \
-  /Users/thellert/LBL/ML/PyBeamViewer/ \
-  appsdev2:~/projects/PyBeamViewer/
+# 3. Pull latest from GitLab on appsdev2
+ssh appsdev2 "cd ~/projects/beam-viewer && git pull"
 
-# 3. Rebuild (podman caches layers, so unchanged deps are fast)
-ssh appsdev2 "cd ~/projects/PyBeamViewer && podman build -f docker/Dockerfile.beam-viewer -t beam-viewer-test ."
+# 4. Rebuild (podman caches layers, so unchanged deps are fast)
+ssh appsdev2 "cd ~/projects/beam-viewer && podman build -f docker/Dockerfile.beam-viewer -t beam-viewer-test ."
 
-# 4. Run again
+# 5. Run again
 ssh appsdev2 "podman run -d --name beam-viewer-test \
   --network host \
   beam-viewer-test \
   --host 0.0.0.0 --port 8007"
 ```
 
-EPICS CA env vars are baked into the image — no manual `-e` flags needed. For faster iteration when only Python source changed (no new deps), you can exec into the container to test changes without rebuilding. But for a clean test, always rebuild.
+EPICS CA env vars are baked into the image — no manual `-e` flags needed.
 
 ---
 
@@ -182,16 +187,19 @@ ssh -L 8007:localhost:8007 -N -f appsdev2
 Compare what you see in the screenshot against what the PyQt source says. Identify ONE specific mismatch.
 
 **Step 3: FIX the mismatch.**
-Make the minimal local change (HTML, CSS, or JS) to close that one gap. Then redeploy:
+Make the minimal local change (HTML, CSS, or JS) to close that one gap. Then push and redeploy:
 ```bash
+# Push changes to GitLab
+git push gitlab web-panel
+
 # Stop old container
 ssh appsdev2 "podman stop beam-viewer-test 2>/dev/null; podman rm beam-viewer-test 2>/dev/null"
-# Sync code
-rsync -avz --exclude=node_modules --exclude=.coverage --exclude=__pycache__ \
-  --exclude=.git --exclude='*.pyc' --exclude=test-results \
-  /Users/thellert/LBL/ML/PyBeamViewer/ appsdev2:~/projects/PyBeamViewer/
+
+# Pull latest on appsdev2
+ssh appsdev2 "cd ~/projects/beam-viewer && git pull"
+
 # Rebuild and run
-ssh appsdev2 "cd ~/projects/PyBeamViewer && podman build -f docker/Dockerfile.beam-viewer -t beam-viewer-test . 2>&1 | tail -3"
+ssh appsdev2 "cd ~/projects/beam-viewer && podman build -f docker/Dockerfile.beam-viewer -t beam-viewer-test . 2>&1 | tail -3"
 ssh appsdev2 "podman run -d --name beam-viewer-test --network host beam-viewer-test --host 0.0.0.0 --port 8007"
 ```
 IMPORTANT: Bump the `?v=N` cache-bust version on changed static files in `index.html` so browsers don't serve stale assets.
@@ -283,6 +291,9 @@ print('Connected:', pv.read().data)
 
 # Check if port 8007 is in use by something else
 ssh appsdev2 "ss -tlnp | grep 8007"
+
+# Verify repo state on appsdev2
+ssh appsdev2 "cd ~/projects/beam-viewer && git log --oneline -5 && git status"
 ```
 
 ---
@@ -295,8 +306,8 @@ ssh appsdev2 "podman stop beam-viewer-test && podman rm beam-viewer-test"
 # Optionally remove the image too
 ssh appsdev2 "podman rmi beam-viewer-test"
 
-# Remove synced source (if you don't need it anymore)
-ssh appsdev2 "rm -rf ~/projects/PyBeamViewer"
+# Remove cloned source (if you don't need it anymore)
+ssh appsdev2 "rm -rf ~/projects/beam-viewer"
 ```
 
 ---
