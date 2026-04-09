@@ -90,6 +90,7 @@ class HeadlessController:
 
         self._streaming: bool = True
         self._fit_full: bool = True
+        self._fit_roi: bool = False
         self._acquire_next_frame: bool = False
         self._active_prefix: str = get_active_prefix()
         self._roi_seq: int = 0
@@ -219,6 +220,18 @@ class HeadlessController:
         self.dispatcher.emit(EVT_FRAME_READY, analyzed_state)
         self._append_trending_record(analyzed_state)
 
+        # Auto-trigger ROI fit when enabled and ROI is active
+        if self._fit_roi and self._current_roi is not None:
+            frame = analyzed_state.frame
+            x0, y0, x1, y1 = self._current_roi
+            x0 = max(0, x0)
+            y0 = max(0, y0)
+            x1 = min(frame.shape[1], x1)
+            y1 = min(frame.shape[0], y1)
+            if x1 > x0 and y1 > y0:
+                roi_frame = frame[y0:y1, x0:x1]
+                self.request_roi_fit(self._current_roi, roi_frame)
+
     def _on_connection_changed(self, connected: bool) -> None:
         self.state.connected = connected
         self.dispatcher.emit(EVT_CONNECTION_CHANGED, connected)
@@ -253,6 +266,15 @@ class HeadlessController:
     @property
     def fit_full(self) -> bool:
         return self._fit_full
+
+    def set_fit_roi(self, enabled: bool) -> None:
+        """Enable or disable Gaussian fitting on the ROI region."""
+        self._fit_roi = enabled
+        log.info("ROI fitting %s", "enabled" if enabled else "disabled")
+
+    @property
+    def fit_roi(self) -> bool:
+        return self._fit_roi
 
     # ------------------------------------------------------------------
     # Camera settings (exposure / gain)

@@ -30,3 +30,4 @@ class RoiFrameData(BaseModel):
     metadata: Optional[FrameMetadata] = None
     image_b64_png: Optional[str] = None
     projections: Optional[ProjectionData] = None
+    fit: Optional[dict] = None

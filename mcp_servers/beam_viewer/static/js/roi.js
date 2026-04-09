@@ -248,7 +248,7 @@ var BeamROI = (function () {
         if (data.projections) {
           // Render ROI projections via the Projections module
           if (typeof Projections !== "undefined" && Projections.updateROI) {
-            Projections.updateROI(data.projections);
+            Projections.updateROI(data.projections, data.fit || null);
           }
         }
       })

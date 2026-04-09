@@ -206,8 +206,8 @@ var Projections = (function() {
   // Last-drawn data — used to re-render on window resize
   var _lastHProj = null,   _lastHFit = null;
   var _lastVProj = null,   _lastVFit = null;
-  var _lastROIHProj = null;
-  var _lastROIVProj = null;
+  var _lastROIHProj = null, _lastROIHFit = null;
+  var _lastROIVProj = null, _lastROIVFit = null;
 
   function init() {
     hCanvas = document.getElementById("hProjCanvas");
@@ -249,20 +249,26 @@ var Projections = (function() {
    * Update ROI projection plots (called from roi.js with REST data).
    *
    * @param {Object} projections  - { x_projection: [...], y_projection: [...] }
+   * @param {Object} [fit]        - { roi_x_fit: {...}, roi_y_fit: {...} }
    */
-  function updateROI(projections) {
+  function updateROI(projections, fit) {
     if (!roiHCanvas || !roiVCanvas) return;
     if (!projections) return;
 
-    _lastROIHProj = projections.x_projection || null;
-    _lastROIVProj = projections.y_projection || null;
+    var xFit = fit && fit.roi_x_fit ? fit.roi_x_fit : null;
+    var yFit = fit && fit.roi_y_fit ? fit.roi_y_fit : null;
 
-    drawPlot(roiHCanvas, _lastROIHProj, null, {
+    _lastROIHProj = projections.x_projection || null;
+    _lastROIHFit  = xFit;
+    _lastROIVProj = projections.y_projection || null;
+    _lastROIVFit  = yFit;
+
+    drawPlot(roiHCanvas, _lastROIHProj, xFit, {
       title: "Horizontal Projection  (ROI)",
       curveColor: COLORS.hCurve,
     });
 
-    drawPlot(roiVCanvas, _lastROIVProj, null, {
+    drawPlot(roiVCanvas, _lastROIVProj, yFit, {
       title: "Vertical Projection  (ROI)",
       curveColor: COLORS.vCurve,
     });
@@ -283,13 +289,13 @@ var Projections = (function() {
       });
     }
     if (roiHCanvas && _lastROIHProj) {
-      drawPlot(roiHCanvas, _lastROIHProj, null, {
+      drawPlot(roiHCanvas, _lastROIHProj, _lastROIHFit, {
         title: "Horizontal Projection  (ROI)",
         curveColor: COLORS.hCurve,
       });
     }
     if (roiVCanvas && _lastROIVProj) {
-      drawPlot(roiVCanvas, _lastROIVProj, null, {
+      drawPlot(roiVCanvas, _lastROIVProj, _lastROIVFit, {
         title: "Vertical Projection  (ROI)",
         curveColor: COLORS.vCurve,
       });

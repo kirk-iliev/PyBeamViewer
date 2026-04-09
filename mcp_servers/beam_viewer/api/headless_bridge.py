@@ -37,6 +37,11 @@ class HeadlessBridge:
         self._state = state
         self._controller = controller
         self._start_time: Optional[float] = None
+        self._last_roi_fit: Optional[dict] = None
+
+        # Listen for ROI fit results from the controller
+        from mcp_servers.beam_viewer.core.headless_controller import EVT_ROI_FIT_DONE
+        controller.dispatcher.register(EVT_ROI_FIT_DONE, self._on_roi_fit_done)
 
     def mark_start_time(self) -> None:
         """Record the wall-clock start time for FPS computation."""
@@ -129,7 +134,7 @@ class HeadlessBridge:
     def get_analysis_status(self) -> dict:
         result: dict[str, Any] = {
             "fit_full_enabled": self._controller.fit_full,
-            "fit_roi_enabled": False,  # No GUI toggle in headless mode
+            "fit_roi_enabled": self._controller.fit_roi,
         }
 
         fs = self._state.frame_state
@@ -160,9 +165,33 @@ class HeadlessBridge:
         self._controller.set_fit_full(enabled)
 
     def set_fit_roi(self, enabled: bool) -> None:
-        # In headless mode, ROI fitting is triggered via request_roi_fit()
-        # rather than a persistent toggle. This is a no-op for API compat.
-        pass
+        self._controller.set_fit_roi(enabled)
+        if not enabled:
+            self._last_roi_fit = None
+
+    def _on_roi_fit_done(self, bp: Any) -> None:
+        """Cache the latest ROI fit result from the controller."""
+        roi_fit: dict[str, Any] = {}
+        for axis, fit in [("roi_x_fit", bp.x_fit), ("roi_y_fit", bp.y_fit)]:
+            if fit is not None:
+                roi_fit[axis] = {
+                    "success": fit.success,
+                    "sigma": _nan_to_none(fit.sigma),
+                    "sigma_um": _nan_to_none(fit.sigma_um) if fit.sigma_um is not None else None,
+                    "centroid": _nan_to_none(fit.centroid),
+                    "centroid_um": _nan_to_none(fit.centroid_um) if fit.centroid_um is not None else None,
+                    "amplitude": _nan_to_none(fit.amplitude),
+                    "offset": _nan_to_none(fit.offset),
+                    "residual": _nan_to_none(fit.residual),
+                    "unit_label": fit.unit_label,
+                }
+            else:
+                roi_fit[axis] = None
+        self._last_roi_fit = roi_fit
+
+    def get_roi_fit(self) -> Optional[dict]:
+        """Return the latest ROI fit result, or None."""
+        return self._last_roi_fit
 
     # ------------------------------------------------------------------
     # ROI
@@ -393,6 +422,7 @@ class HeadlessBridge:
                 "x_projection": x_proj,
                 "y_projection": y_proj,
             },
+            "fit": self._last_roi_fit,
         }
 
     # ------------------------------------------------------------------
@@ -473,6 +503,8 @@ class HeadlessBridge:
                 "fit_roi_enabled": analysis["fit_roi_enabled"],
                 "x_fit": analysis.get("x_fit"),
                 "y_fit": analysis.get("y_fit"),
+                "roi_x_fit": self._last_roi_fit.get("roi_x_fit") if self._last_roi_fit else None,
+                "roi_y_fit": self._last_roi_fit.get("roi_y_fit") if self._last_roi_fit else None,
             },
             "roi": roi,
             "drift": drift,
