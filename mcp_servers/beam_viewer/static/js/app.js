@@ -101,7 +101,15 @@
     }
   });
 
-  Connection.onStateChange(updateStatus);
+  Connection.onStateChange(function(state) {
+    updateStatus(state);
+    // Show/hide disconnected banner based on WebSocket state
+    if (state === "disconnected" || state === "reconnecting") {
+      ErrorStates.showDisconnected();
+    } else if (state === "connected") {
+      ErrorStates.hideDisconnected();
+    }
+  });
 
   // -- Start --------------------------------------------------------------
   Connection.start();

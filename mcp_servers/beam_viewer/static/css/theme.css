@@ -352,7 +352,6 @@ body {
   color: var(--text-dim);
   font-size: 14px;
   z-index: 15;
-  display: none;
   justify-content: center;
   align-items: center;
   text-align: center;
