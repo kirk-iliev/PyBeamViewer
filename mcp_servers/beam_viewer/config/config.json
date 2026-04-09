@@ -1,0 +1,64 @@
+{
+  "active_prefix": "BL72",
+  "pv_prefixes": {
+    "BL31": {
+      "image_pv": "BL31:image1:ArrayData",
+      "width_pv": "BL31:image1:ArraySize0_RBV",
+      "height_pv": "BL31:image1:ArraySize1_RBV",
+      "exposure_pv": "BL31:cam1:AcquireTime",
+      "exposure_rbv_pv": "BL31:cam1:AcquireTime_RBV",
+      "gain_pv": "BL31:cam1:Gain",
+      "gain_rbv_pv": "BL31:cam1:Gain_RBV",
+      "fallback_shape": [
+        300,
+        300
+      ],
+      "calibration": {
+        "method": "fixed",
+        "pixel_size_um": 1.8852,
+        "description": "Fixed calibration from 2015 re-alignment"
+      }
+    },
+    "BL72": {
+      "image_pv": "BL72:image1:ArrayData",
+      "width_pv": "BL72:image1:ArraySize0_RBV",
+      "height_pv": "BL72:image1:ArraySize1_RBV",
+      "exposure_pv": "BL72:cam1:AcquireTime",
+      "exposure_rbv_pv": "BL72:cam1:AcquireTime_RBV",
+      "gain_pv": "BL72:cam1:Gain",
+      "gain_rbv_pv": "BL72:cam1:Gain_RBV",
+      "fallback_shape": [
+        1038,
+        1300
+      ],
+      "calibration": {
+        "method": "pinhole",
+        "pinhole_spacing_um": 1000.0,
+        "source_to_pinhole_mm": 6.08,
+        "pinhole_to_sensor_mm": 2.04,
+        "measured_pinhole_spacing_px": 274.7778,
+        "description": "Pinhole BPM at fixed zoom position 10000 (2021 calibration)"
+      }
+    }
+  },
+  "epics": {
+    "host": "",
+    "port": 15064
+  },
+  "display": {
+    "enable_fitting": true,
+    "auto_levels": true,
+    "levels_interval": 30,
+    "colormap_name": "hot"
+  },
+  "roi_selections": {},
+  "centroid_references": {},
+  "crosshair_enabled": false,
+  "overlay": {
+    "h_enabled": false,
+    "h_side": "bottom",
+    "v_enabled": false,
+    "v_side": "left",
+    "scale": 0.25
+  }
+}
