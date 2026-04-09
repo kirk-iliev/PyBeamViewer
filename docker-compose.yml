@@ -1,0 +1,19 @@
+services:
+  beam-viewer:
+    image: ${REGISTRY:-local}/mcp-beam-viewer:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.beam-viewer
+    ports:
+      - "0.0.0.0:8007:8007"
+    networks:
+      - als-net
+    volumes:
+      - ./beam-viewer-data:/app/config
+    env_file:
+      - .env.production
+    restart: unless-stopped
+
+networks:
+  als-net:
+    external: true

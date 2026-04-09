@@ -1,0 +1,3 @@
+services:
+  beam-viewer:
+    network_mode: host
