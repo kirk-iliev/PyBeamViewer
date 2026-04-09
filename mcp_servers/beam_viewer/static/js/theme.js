@@ -19,7 +19,7 @@ var ThemeManager = (function() {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem(STORAGE_KEY, theme);
     if (btn) {
-      btn.textContent = theme === "dark" ? "Light Mode" : "Dark Mode";
+      btn.textContent = theme === "dark" ? "\u2600  Light" : "\uD83C\uDF19  Dark";
     }
   }
 

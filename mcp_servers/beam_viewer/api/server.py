@@ -6,10 +6,11 @@ served directly by uvicorn.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,20 +37,28 @@ log = logging.getLogger(__name__)
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
-def create_app(bridge: Any) -> FastAPI:
+def create_app(bridge: Any, *, dispatcher: Optional[Any] = None) -> FastAPI:
     """Build and return the FastAPI application with all routes registered.
 
     Parameters
     ----------
     bridge : HeadlessBridge
         The bridge instance connecting the API to the headless controller.
+    dispatcher : CallbackDispatcher, optional
+        If provided, EVT_FRAME_READY events are wired to broadcast frames
+        to all connected WebSocket clients.
     """
     init_bridge(bridge)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         log.info("Headless beam viewer API starting up")
+        # Wire dispatcher → WebSocket broadcast inside the lifespan so we
+        # have a guaranteed reference to the running event loop.
+        _cleanup = _wire_ws_broadcast(bridge, dispatcher)
         yield
+        if _cleanup:
+            _cleanup()
         log.info("Headless beam viewer API shutting down")
 
     app = FastAPI(
@@ -115,3 +124,34 @@ def create_app(bridge: Any) -> FastAPI:
         app.mount("/panel", StaticFiles(directory=str(_STATIC_DIR), html=True), name="panel")
 
     return app
+
+
+def _wire_ws_broadcast(bridge: Any, dispatcher: Optional[Any]) -> Optional[callable]:
+    """Connect dispatcher EVT_FRAME_READY → ws_manager.broadcast.
+
+    Called inside the lifespan so asyncio.get_running_loop() returns
+    uvicorn's event loop.  Returns a cleanup callable (or None).
+    """
+    if dispatcher is None:
+        return None
+
+    from beam_viewer.core.headless_controller import EVT_FRAME_READY
+
+    loop = asyncio.get_running_loop()
+
+    def _on_frame_ready(_frame_state) -> None:
+        if loop.is_closed():
+            return
+        payload = bridge.build_ws_frame_payload()
+        if payload is not None:
+            asyncio.run_coroutine_threadsafe(ws_manager.broadcast(payload), loop)
+
+    dispatcher.register(EVT_FRAME_READY, _on_frame_ready)
+
+    def _cleanup():
+        try:
+            dispatcher.unregister(EVT_FRAME_READY, _on_frame_ready)
+        except (ValueError, KeyError):
+            pass
+
+    return _cleanup

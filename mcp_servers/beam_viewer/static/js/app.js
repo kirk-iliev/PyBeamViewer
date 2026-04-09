@@ -10,7 +10,6 @@
   var statusText = document.getElementById("statusText");
   var frameNum   = document.getElementById("frameNum");
   var fpsVal     = document.getElementById("fpsVal");
-  var cmapSelect = document.getElementById("cmapSelect");
   var noSignal   = document.getElementById("noSignal");
   var dimLabel   = document.getElementById("dimLabel");
 
@@ -31,23 +30,12 @@
     }
   }
 
-  // -- Colormap selector --------------------------------------------------
-  cmapSelect.addEventListener("change", function() {
-    currentCmap = this.value;
-    fetch("../display/colormap", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({name: currentCmap}),
-    }).catch(function() { /* best effort */ });
-  });
-
-  // Sync with server on load
+  // -- Colormap: sync from server on load, then via WS messages -----------
   fetch("../display/colormap")
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.current && COLORMAPS[data.current]) {
         currentCmap = data.current;
-        cmapSelect.value = currentCmap;
       }
     })
     .catch(function() {});
@@ -73,6 +61,11 @@
 
   // -- Frame handler ------------------------------------------------------
   Connection.onFrame(function(msg) {
+    // Track colormap from WS readback
+    if (msg.colormap) {
+      currentCmap = msg.colormap;
+    }
+
     if (msg.frame_jpeg_b64) {
       Renderer.renderFrame(msg.frame_jpeg_b64, currentCmap);
     }

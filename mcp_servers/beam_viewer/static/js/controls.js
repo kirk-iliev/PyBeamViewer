@@ -138,32 +138,24 @@ var ControlPanel = (function() {
   gainRow.appendChild(gainInput);
   var gainBtn = makeButton("Set", gainRow);
 
-  // -- Acquisition section ------------------------------------------------
-  var acqBody = makeSection("Acquisition", panel);
+  // -- Acquire section (matches PyQt "Acquire" group — includes background) -
+  var acqBody = makeSection("Acquire", panel);
 
-  var streamBtn = makeToggleButton("Streaming", acqBody, {active: true});
+  var streamBtn = makeToggleButton("Streaming", acqBody);
+  streamBtn.classList.add("stream-on");  // green initially (matches PyQt)
 
-  var fitRow = document.createElement("div");
-  fitRow.className = "cp-btn-row";
-  acqBody.appendChild(fitRow);
-  var fitFullBtn = makeToggleButton("Fit Full", fitRow, {active: true});
-  var fitRoiBtn = makeToggleButton("Fit ROI", fitRow);
+  var acquireBgBtn = makeButton("Acquire Background", acqBody);
 
-  // -- Background section -------------------------------------------------
-  var bgBody = makeSection("Background", panel);
-
-  var acquireBgBtn = makeButton("Acquire Background", bgBody);
-
-  var bgSubBtn = makeToggleButton("Background Sub", bgBody, {disabled: true});
+  var bgSubBtn = makeToggleButton("Background Sub", acqBody, {disabled: true});
 
   var bgStatus = document.createElement("div");
   bgStatus.className = "cp-status-text";
   bgStatus.textContent = "BG: none";
-  bgBody.appendChild(bgStatus);
+  acqBody.appendChild(bgStatus);
 
   var bgIoRow = document.createElement("div");
   bgIoRow.className = "cp-btn-row";
-  bgBody.appendChild(bgIoRow);
+  acqBody.appendChild(bgIoRow);
   var saveBgBtn = makeButton("Save BG", bgIoRow, {disabled: true});
   var loadBgBtn = makeButton("Load BG", bgIoRow);
 
@@ -171,15 +163,53 @@ var ControlPanel = (function() {
   var bgFileWrap = document.createElement("div");
   bgFileWrap.className = "cp-bg-file-list";
   bgFileWrap.style.display = "none";
-  bgBody.appendChild(bgFileWrap);
+  acqBody.appendChild(bgFileWrap);
   var bgFileSelect = document.createElement("select");
   bgFileSelect.className = "cp-select";
   bgFileSelect.size = 4;
   bgFileWrap.appendChild(bgFileSelect);
   var bgFileLoadBtn = makeButton("Load Selected", bgFileWrap);
 
-  // -- Display section ----------------------------------------------------
-  var dispBody = makeSection("Display", panel);
+  // -- Analysis section (matches PyQt "Analysis" group) --------------------
+  var analysisBody = makeSection("Analysis", panel);
+
+  var fitFullBtn = makeToggleButton("Fit Full Image", analysisBody, {active: true});
+  var fitRoiBtn = makeToggleButton("Fit ROI", analysisBody);
+
+  var roiBtnRow = document.createElement("div");
+  roiBtnRow.className = "cp-btn-row";
+  analysisBody.appendChild(roiBtnRow);
+  var clearRoiBtn = makeButton("\u2715  Clear ROI", roiBtnRow, {disabled: true});
+  var centerRoiBtn = makeButton("\u2295  Center ROI", roiBtnRow, {disabled: true});
+
+  var showCrosshairBtn = makeToggleButton("Show Centroid Ref", analysisBody, {disabled: true});
+
+  var trendingBtn = makeToggleButton("\uD83D\uDCC8  Trending", analysisBody);
+  trendingBtn.addEventListener("click", function() {
+    if (typeof Trending !== "undefined") {
+      Trending.toggle();
+      trendingBtn.classList.toggle("active");
+    }
+  });
+
+  var trendingDepthRow = makeRow("History:", analysisBody);
+  var trendingDepthInput = document.createElement("input");
+  trendingDepthInput.type = "number";
+  trendingDepthInput.className = "cp-input";
+  trendingDepthInput.min = "50";
+  trendingDepthInput.max = "2000";
+  trendingDepthInput.step = "50";
+  trendingDepthInput.value = "300";
+  trendingDepthInput.disabled = true;
+  trendingDepthRow.appendChild(trendingDepthInput);
+  var framesLabel = document.createElement("span");
+  framesLabel.className = "cp-label";
+  framesLabel.style.minWidth = "auto";
+  framesLabel.textContent = "frames";
+  trendingDepthRow.appendChild(framesLabel);
+
+  // -- Image Settings section (matches PyQt "Image Settings" group) --------
+  var dispBody = makeSection("Image Settings", panel);
 
   var cmapRow = makeRow("Colormap:", dispBody);
   var cmapSelect = document.createElement("select");
@@ -217,11 +247,16 @@ var ControlPanel = (function() {
     postJSON("/camera/gain", {value: val}).catch(function() {});
   });
 
-  // Streaming toggle
+  // Streaming toggle — green when streaming, red+Paused when off (matches PyQt)
+  function syncStreamStyle(streaming) {
+    streamBtn.classList.toggle("stream-on", streaming);
+    streamBtn.classList.toggle("stream-off", !streaming);
+    streamBtn.textContent = streaming ? "Streaming" : "Paused";
+  }
   streamBtn.addEventListener("click", function() {
-    var nowActive = streamBtn.classList.contains("active");
-    postJSON("/streaming", {streaming: !nowActive}).then(function() {
-      streamBtn.classList.toggle("active");
+    var nowStreaming = streamBtn.classList.contains("stream-on");
+    postJSON("/streaming", {streaming: !nowStreaming}).then(function() {
+      syncStreamStyle(!nowStreaming);
     }).catch(function() {});
   });
 
@@ -239,6 +274,16 @@ var ControlPanel = (function() {
     postJSON("/analysis/fit-roi", {enabled: !nowActive}).then(function() {
       fitRoiBtn.classList.toggle("active");
     }).catch(function() {});
+  });
+
+  // Clear ROI
+  clearRoiBtn.addEventListener("click", function() {
+    api("/roi", {method: "DELETE"}).catch(function() {});
+  });
+
+  // Center ROI
+  centerRoiBtn.addEventListener("click", function() {
+    api("/roi/center", {method: "POST"}).catch(function() {});
   });
 
   // Acquire background
@@ -287,23 +332,10 @@ var ControlPanel = (function() {
     }).catch(function() {});
   });
 
-  // Colormap — sync with header toolbar select and server
+  // Colormap — push to server on change
   cmapSelect.addEventListener("change", function() {
-    var name = cmapSelect.value;
-    // Sync toolbar dropdown if it exists
-    var toolbarCmap = document.getElementById("cmapSelect");
-    if (toolbarCmap) toolbarCmap.value = name;
-    // Push to server
-    postJSON("/display/colormap", {name: name}).catch(function() {});
+    postJSON("/display/colormap", {name: cmapSelect.value}).catch(function() {});
   });
-
-  // Keep this select in sync when the toolbar one changes
-  var toolbarCmap = document.getElementById("cmapSelect");
-  if (toolbarCmap) {
-    toolbarCmap.addEventListener("change", function() {
-      cmapSelect.value = toolbarCmap.value;
-    });
-  }
 
   // -----------------------------------------------------------------------
   // Initialisation — fetch initial state from server
@@ -323,11 +355,7 @@ var ControlPanel = (function() {
 
     // Streaming
     api("/streaming").then(function(r) { return r.json(); }).then(function(data) {
-      if (data.streaming) {
-        streamBtn.classList.add("active");
-      } else {
-        streamBtn.classList.remove("active");
-      }
+      syncStreamStyle(!!data.streaming);
     }).catch(function() {});
 
     // Background
@@ -368,7 +396,7 @@ var ControlPanel = (function() {
   function onWSMessage(msg) {
     // Keep controls in sync with server state delivered via WS
     if (msg.streaming !== undefined) {
-      streamBtn.classList.toggle("active", !!msg.streaming);
+      syncStreamStyle(!!msg.streaming);
     }
     if (msg.background) {
       syncBackground(msg.background);
@@ -383,8 +411,6 @@ var ControlPanel = (function() {
     }
     if (msg.colormap) {
       cmapSelect.value = msg.colormap;
-      var toolbarCmap = document.getElementById("cmapSelect");
-      if (toolbarCmap) toolbarCmap.value = msg.colormap;
     }
   }
 
@@ -394,6 +420,8 @@ var ControlPanel = (function() {
   return {
     onWSMessage: onWSMessage,
     init: init,
+    clearRoiBtn: clearRoiBtn,
+    centerRoiBtn: centerRoiBtn,
   };
 
 })();

@@ -47,8 +47,8 @@ def main(argv: list[str] | None = None) -> None:
     controller = HeadlessController(state)
     bridge = HeadlessBridge(state, controller)
 
-    # Create FastAPI app
-    app = create_app(bridge)
+    # Create FastAPI app with WS broadcast wiring
+    app = create_app(bridge, dispatcher=controller.dispatcher)
 
     # Start EPICS acquisition
     log.info("Starting EPICS worker and analysis pipeline")

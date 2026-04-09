@@ -1,9 +1,12 @@
 "use strict";
 
 /**
- * Trending panel -- 8 time-series charts (sigma, centroid, ROI sigma, drift)
- * rendered on canvas elements in a 4x2 grid below the main viewer.
+ * Trending panel -- 3 dual-trace sub-plots matching PyQt's TrendingPanel:
+ *   1. Full Image Beam Size (σx + σy)
+ *   2. ROI Beam Size (σx + σy)
+ *   3. Centroid Drift (Δx + Δy)
  *
+ * Each sub-plot draws two traces with a title and stats legend.
  * Fetches data from GET /trending/history and auto-refreshes.
  * Depth control sends POST /trending/depth.
  */
@@ -16,15 +19,26 @@ var Trending = (function() {
   var POLL_INTERVAL_MS = 2000;
   var API_BASE = "..";
 
-  var CHART_DEFS = [
-    { key: "sigma_x",     label: "\u03C3_x",     color: "#89b4fa" },
-    { key: "sigma_y",     label: "\u03C3_y",     color: "#a6e3a1" },
-    { key: "centroid_x",  label: "Centroid X",   color: "#f9e2af" },
-    { key: "centroid_y",  label: "Centroid Y",   color: "#cba6f7" },
-    { key: "roi_sigma_x", label: "ROI \u03C3_x", color: "#f38ba8" },
-    { key: "roi_sigma_y", label: "ROI \u03C3_y", color: "#fab387" },
-    { key: "drift_x",     label: "Drift X",      color: "#74c7ec" },
-    { key: "drift_y",     label: "Drift Y",      color: "#94e2d5" },
+  // 3 sub-plots matching PyQt's _TrendSubPlot instances
+  var SUBPLOT_DEFS = [
+    {
+      title: "Full Image Beam Size",
+      keyA: "sigma_x",     keyB: "sigma_y",
+      labelA: "\u03C3x",   labelB: "\u03C3y",
+      colorA: "#00e5ff",    colorB: "#ce93d8",  // cyan + lavender (h/v curve)
+    },
+    {
+      title: "ROI Beam Size",
+      keyA: "roi_sigma_x",  keyB: "roi_sigma_y",
+      labelA: "\u03C3x",    labelB: "\u03C3y",
+      colorA: "#00e5ff",     colorB: "#ce93d8",
+    },
+    {
+      title: "Centroid Drift",
+      keyA: "drift_x",      keyB: "drift_y",
+      labelA: "\u0394x",    labelB: "\u0394y",
+      colorA: "#2ecc71",     colorB: "#e67e22",  // green + orange
+    },
   ];
 
   // Plot style
@@ -37,14 +51,14 @@ var Trending = (function() {
     textDim:  "#888",
   };
 
-  var PADDING = { top: 24, right: 10, bottom: 22, left: 50 };
+  var PADDING = { top: 28, right: 10, bottom: 22, left: 50 };
 
   // -----------------------------------------------------------------------
   // State
   // -----------------------------------------------------------------------
   var visible = false;
   var pollTimer = null;
-  var canvases = [];   // array of {canvas, key, label, color}
+  var subplots = [];  // array of {canvas, def}
   var lastHistory = null;
   var panelEl = null;
   var toggleBtn = null;
@@ -72,9 +86,9 @@ var Trending = (function() {
   }
 
   // -----------------------------------------------------------------------
-  // Canvas chart renderer
+  // Canvas chart renderer — dual-trace version
   // -----------------------------------------------------------------------
-  function drawChart(canvas, data, frameNumbers, opts) {
+  function drawDualChart(canvas, dataA, dataB, frameNumbers, opts) {
     var ctx = canvas.getContext("2d");
     var dpr = window.devicePixelRatio || 1;
     var cw = canvas.clientWidth;
@@ -99,12 +113,15 @@ var Trending = (function() {
 
     // Title
     ctx.fillStyle = COLORS.text;
-    ctx.font = "bold 10px -apple-system, BlinkMacSystemFont, monospace";
+    ctx.font = "bold 11px -apple-system, BlinkMacSystemFont, monospace";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    ctx.fillText(opts.label, pad.left, 4);
+    ctx.fillText(opts.title || "", pad.left, 4);
 
-    if (!data || data.length === 0) {
+    var hasA = dataA && dataA.length > 0;
+    var hasB = dataB && dataB.length > 0;
+
+    if (!hasA && !hasB) {
       ctx.fillStyle = COLORS.textDim;
       ctx.font = "10px monospace";
       ctx.textAlign = "center";
@@ -113,14 +130,24 @@ var Trending = (function() {
       return;
     }
 
-    // Data range
-    var n = data.length;
-    var yMin = data[0];
-    var yMax = data[0];
-    for (var i = 1; i < n; i++) {
-      if (data[i] < yMin) yMin = data[i];
-      if (data[i] > yMax) yMax = data[i];
+    // Compute combined data range from both traces
+    var n = Math.max(hasA ? dataA.length : 0, hasB ? dataB.length : 0);
+    var yMin = Infinity;
+    var yMax = -Infinity;
+
+    if (hasA) {
+      for (var i = 0; i < dataA.length; i++) {
+        if (dataA[i] < yMin) yMin = dataA[i];
+        if (dataA[i] > yMax) yMax = dataA[i];
+      }
     }
+    if (hasB) {
+      for (var i = 0; i < dataB.length; i++) {
+        if (dataB[i] < yMin) yMin = dataB[i];
+        if (dataB[i] > yMax) yMax = dataB[i];
+      }
+    }
+
     var yRange = yMax - yMin;
     if (yRange < 1e-9) yRange = 1;
     var yPad = yRange * 0.1;
@@ -177,40 +204,60 @@ var Trending = (function() {
       ctx.font = "9px monospace";
       ctx.textBaseline = "top";
       var xLabelY = pad.top + plotH + 4;
-
       ctx.textAlign = "left";
       ctx.fillText(Math.round(frameNumbers[0]).toString(), pad.left, xLabelY);
-
       ctx.textAlign = "right";
       ctx.fillText(Math.round(frameNumbers[n - 1]).toString(), pad.left + plotW, xLabelY);
     }
 
-    // Data line
-    ctx.strokeStyle = opts.color;
-    ctx.lineWidth = 1.4;
+    // Draw trace A
+    if (hasA) {
+      drawTrace(ctx, dataA, n, xMap, yMap, opts.colorA);
+    }
+
+    // Draw trace B
+    if (hasB) {
+      drawTrace(ctx, dataB, n, xMap, yMap, opts.colorB);
+    }
+
+    // Stats legend (top right, matching PyQt: "labelA: val  labelB: val")
+    var statsStr = "";
+    if (hasA) {
+      var lastA = dataA[dataA.length - 1];
+      statsStr += opts.labelA + ": " + formatVal(lastA);
+    } else {
+      statsStr += opts.labelA + ": \u2014\u2014";
+    }
+    statsStr += "    ";
+    if (hasB) {
+      var lastB = dataB[dataB.length - 1];
+      statsStr += opts.labelB + ": " + formatVal(lastB);
+    } else {
+      statsStr += opts.labelB + ": \u2014\u2014";
+    }
+    ctx.fillStyle = COLORS.text;
+    ctx.font = "10px monospace";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "top";
+    ctx.fillText(statsStr, cw - pad.right, 4);
+  }
+
+  function drawTrace(ctx, data, n, xMap, yMap, color) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.3;
     ctx.setLineDash([]);
     ctx.beginPath();
     ctx.moveTo(xMap(0), yMap(data[0]));
-    for (var j = 1; j < n; j++) {
+    for (var j = 1; j < data.length; j++) {
       ctx.lineTo(xMap(j), yMap(data[j]));
     }
     ctx.stroke();
+  }
 
-    // Current value label (top right)
-    var lastVal = data[n - 1];
-    var valStr;
-    if (Math.abs(lastVal) >= 1000) {
-      valStr = (lastVal / 1000).toFixed(2) + "k";
-    } else if (Math.abs(lastVal) >= 1) {
-      valStr = lastVal.toFixed(2);
-    } else {
-      valStr = lastVal.toFixed(4);
-    }
-    ctx.fillStyle = opts.color;
-    ctx.font = "bold 10px monospace";
-    ctx.textAlign = "right";
-    ctx.textBaseline = "top";
-    ctx.fillText(valStr, cw - pad.right, 4);
+  function formatVal(v) {
+    if (Math.abs(v) >= 1000) return (v / 1000).toFixed(2) + "k";
+    if (Math.abs(v) >= 1)    return v.toFixed(3);
+    return v.toFixed(4);
   }
 
   // -----------------------------------------------------------------------
@@ -220,15 +267,7 @@ var Trending = (function() {
     panelEl = document.getElementById("trendingPanel");
     if (!panelEl) return;
 
-    // Toggle button in toolbar
-    toggleBtn = document.getElementById("trendingToggle");
-    if (toggleBtn) {
-      toggleBtn.addEventListener("click", function() {
-        toggle();
-      });
-    }
-
-    // Depth control
+    // Depth control (in trending toolbar)
     depthInput = document.getElementById("trendingDepth");
     if (depthInput) {
       depthInput.addEventListener("change", function() {
@@ -240,25 +279,20 @@ var Trending = (function() {
       });
     }
 
-    // Create chart canvases in the grid
-    var grid = document.getElementById("trendingGrid");
-    if (!grid) return;
+    // Create 3 sub-plot canvases (stacked vertically)
+    var stack = document.getElementById("trendingGrid");
+    if (!stack) return;
 
-    canvases = [];
-    for (var i = 0; i < CHART_DEFS.length; i++) {
-      var def = CHART_DEFS[i];
+    subplots = [];
+    for (var i = 0; i < SUBPLOT_DEFS.length; i++) {
+      var def = SUBPLOT_DEFS[i];
       var cell = document.createElement("div");
       cell.className = "trending-cell";
       var canvas = document.createElement("canvas");
       canvas.className = "trending-canvas";
       cell.appendChild(canvas);
-      grid.appendChild(cell);
-      canvases.push({
-        canvas: canvas,
-        key: def.key,
-        label: def.label,
-        color: def.color,
-      });
+      stack.appendChild(cell);
+      subplots.push({ canvas: canvas, def: def });
     }
 
     // Load initial config
@@ -270,15 +304,12 @@ var Trending = (function() {
   }
 
   // -----------------------------------------------------------------------
-  // Toggle visibility
+  // Toggle visibility (called from control panel trending button)
   // -----------------------------------------------------------------------
   function toggle() {
     visible = !visible;
     if (panelEl) {
       panelEl.style.display = visible ? "" : "none";
-    }
-    if (toggleBtn) {
-      toggleBtn.classList.toggle("active", visible);
     }
     if (visible) {
       refresh();
@@ -286,6 +317,11 @@ var Trending = (function() {
     } else {
       stopPolling();
     }
+  }
+
+  function setVisible(v) {
+    if (v === visible) return;
+    toggle();
   }
 
   // -----------------------------------------------------------------------
@@ -311,16 +347,22 @@ var Trending = (function() {
   }
 
   // -----------------------------------------------------------------------
-  // Render all charts
+  // Render all sub-plots
   // -----------------------------------------------------------------------
   function renderAll() {
     if (!lastHistory || lastHistory.count === 0) return;
-    for (var i = 0; i < canvases.length; i++) {
-      var c = canvases[i];
-      var data = lastHistory[c.key] || [];
-      drawChart(c.canvas, data, lastHistory.frame_number || [], {
-        label: c.label,
-        color: c.color,
+    var fn = lastHistory.frame_number || [];
+    for (var i = 0; i < subplots.length; i++) {
+      var sp = subplots[i];
+      var def = sp.def;
+      var dataA = lastHistory[def.keyA] || [];
+      var dataB = lastHistory[def.keyB] || [];
+      drawDualChart(sp.canvas, dataA, dataB, fn, {
+        title: def.title,
+        labelA: def.labelA,
+        labelB: def.labelB,
+        colorA: def.colorA,
+        colorB: def.colorB,
       });
     }
   }
@@ -348,6 +390,7 @@ var Trending = (function() {
   return {
     init: init,
     toggle: toggle,
+    setVisible: setVisible,
     refresh: refresh,
     onWSMessage: onWSMessage,
   };

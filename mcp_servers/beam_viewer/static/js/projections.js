@@ -13,17 +13,18 @@ var Projections = (function() {
   // -----------------------------------------------------------------------
   // Style constants (match dark theme from index.html)
   // -----------------------------------------------------------------------
+  // Colors match gui/theme.py DARK. CSS vars used where possible.
   var COLORS = {
-    bg:        "#1a1a2a",
+    bg:        "#1a1a2e",
     grid:      "rgba(255,255,255,0.08)",
     axis:      "#555",
     axisText:  "#888",
-    hCurve:    "#89b4fa",   // accent blue — horizontal projection
-    vCurve:    "#a6e3a1",   // green — vertical projection
-    fitCurve:  "#f9e2af",   // yellow dashed — Gaussian fit
-    roiCurve:  "rgba(243,139,168,0.7)", // red-pink — ROI projection
-    textDim:   "#888",
-    text:      "#cdd6f4",
+    hCurve:    "#00e5ff",   // theme.h_curve (dark) — cyan
+    vCurve:    "#ce93d8",   // theme.v_curve (dark) — lavender
+    fitCurve:  "#ff5555",   // theme.fit_curve (dark) — red dashed
+    roiCurve:  "rgba(243,139,168,0.7)",
+    textDim:   "#7a7a9a",
+    text:      "#e0e0e0",
   };
 
   var PADDING = { top: 28, right: 12, bottom: 28, left: 50 };
@@ -199,14 +200,18 @@ var Projections = (function() {
 
   var hCanvas = null;
   var vCanvas = null;
+  var roiHCanvas = null;
+  var roiVCanvas = null;
 
   function init() {
     hCanvas = document.getElementById("hProjCanvas");
     vCanvas = document.getElementById("vProjCanvas");
+    roiHCanvas = document.getElementById("roiHProjCanvas");
+    roiVCanvas = document.getElementById("roiVProjCanvas");
   }
 
   /**
-   * Update both projection plots from a WebSocket frame message.
+   * Update both full-image projection plots from a WebSocket frame message.
    *
    * @param {Object} msg  - Full WebSocket frame payload containing
    *   msg.projections.x_projection, msg.projections.y_projection,
@@ -219,15 +224,35 @@ var Projections = (function() {
     var analysis = msg.analysis || {};
 
     drawPlot(hCanvas, proj.x_projection, analysis.x_fit, {
-      title: "H Projection (X)",
+      title: "Horizontal Projection  (Full Image)",
       curveColor: COLORS.hCurve,
     });
 
     drawPlot(vCanvas, proj.y_projection, analysis.y_fit, {
-      title: "V Projection (Y)",
+      title: "Vertical Projection  (Full Image)",
       curveColor: COLORS.vCurve,
     });
   }
 
-  return { init: init, update: update };
+  /**
+   * Update ROI projection plots (called from roi.js with REST data).
+   *
+   * @param {Object} projections  - { x_projection: [...], y_projection: [...] }
+   */
+  function updateROI(projections) {
+    if (!roiHCanvas || !roiVCanvas) return;
+    if (!projections) return;
+
+    drawPlot(roiHCanvas, projections.x_projection, null, {
+      title: "Horizontal Projection  (ROI)",
+      curveColor: COLORS.hCurve,
+    });
+
+    drawPlot(roiVCanvas, projections.y_projection, null, {
+      title: "Vertical Projection  (ROI)",
+      curveColor: COLORS.vCurve,
+    });
+  }
+
+  return { init: init, update: update, updateROI: updateROI };
 })();

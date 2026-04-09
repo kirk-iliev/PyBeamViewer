@@ -4,99 +4,84 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PyBeamViewer</title>
-<link rel="stylesheet" href="css/theme.css">
+<link rel="stylesheet" href="css/theme.css?v=7">
 </head>
 <body>
 
-<!-- Header -->
-<div class="header">
-  <h1>PyBeamViewer</h1>
-  <div class="header-right">
-    <span>
-      <span class="stat-label">Frame</span>
-      <span class="stat-value" id="frameNum">--</span>
-    </span>
-    <span>
-      <span class="stat-label">FPS</span>
-      <span class="stat-value" id="fpsVal">--</span>
-    </span>
-  </div>
-</div>
-
-<!-- Toolbar -->
-<div class="toolbar">
-  <label for="cmapSelect">Colormap</label>
-  <select id="cmapSelect">
-    <option value="gray">gray</option>
-    <option value="hot" selected>hot</option>
-    <option value="viridis">viridis</option>
-    <option value="inferno">inferno</option>
-    <option value="plasma">plasma</option>
-    <option value="magma">magma</option>
-    <option value="cividis">cividis</option>
-  </select>
-  <button class="cp-btn cp-toggle" id="trendingToggle">Trending</button>
-  <button class="theme-toggle" id="themeToggle">Light Mode</button>
-</div>
-
-<!-- Main content: image canvas + projections + control panel -->
+<!-- Main content: [image column | projections column | trending column] + control panel -->
 <div class="main">
   <div class="viewer-area">
-    <div class="canvas-area">
-      <canvas id="beamCanvas" width="640" height="480"></canvas>
-      <div class="no-signal" id="noSignal">Waiting for frames...</div>
-      <div class="disconnected-banner" id="disconnectedBanner">Disconnected</div>
-      <div class="no-camera-banner" id="noCameraBanner">No camera configured. Select a camera prefix to begin.</div>
+    <div class="image-column">
+      <div class="canvas-area">
+        <canvas id="beamCanvas" width="640" height="480"></canvas>
+        <div class="no-signal" id="noSignal">Waiting for frames...</div>
+        <div class="disconnected-banner" id="disconnectedBanner">Disconnected</div>
+        <div class="no-camera-banner" id="noCameraBanner">No camera configured. Select a camera prefix to begin.</div>
+      </div>
+      <!-- ROI image pane (hidden until ROI drawn, matches PyQt image_pane_2) -->
+      <div class="canvas-area roi-pane" id="roiImagePane" style="display:none">
+        <canvas id="roiCanvas" width="640" height="480"></canvas>
+        <div class="roi-pane-label">ROI</div>
+      </div>
     </div>
-    <div class="v-proj-area">
-      <canvas id="vProjCanvas" class="proj-canvas"></canvas>
-      <div class="fit-failed-msg" id="vFitFailed">Fit failed</div>
+    <div class="proj-column">
+      <div class="proj-area">
+        <canvas id="hProjCanvas" class="proj-canvas"></canvas>
+        <div class="fit-failed-msg" id="hFitFailed">Fit failed</div>
+      </div>
+      <div class="proj-area">
+        <canvas id="vProjCanvas" class="proj-canvas"></canvas>
+        <div class="fit-failed-msg" id="vFitFailed">Fit failed</div>
+      </div>
+      <!-- ROI projections (hidden until ROI drawn, matches PyQt h_proj_2/v_proj_2) -->
+      <div class="proj-area roi-pane" id="roiHProjArea" style="display:none">
+        <canvas id="roiHProjCanvas" class="proj-canvas"></canvas>
+      </div>
+      <div class="proj-area roi-pane" id="roiVProjArea" style="display:none">
+        <canvas id="roiVProjCanvas" class="proj-canvas"></canvas>
+      </div>
     </div>
-    <div class="h-proj-area">
-      <canvas id="hProjCanvas" class="proj-canvas"></canvas>
-      <div class="fit-failed-msg" id="hFitFailed">Fit failed</div>
+    <!-- Trending panel (column in viewer, hidden by default) -->
+    <div class="trending-column" id="trendingPanel" style="display:none">
+      <div class="trending-toolbar">
+        <span class="trending-title">Trending</span>
+        <label class="trending-depth-label">
+          Depth
+          <input type="number" id="trendingDepth" class="cp-input" min="50" max="2000" step="50" value="300">
+        </label>
+      </div>
+      <div class="trending-stack" id="trendingGrid"></div>
     </div>
-    <div class="proj-corner"></div>
   </div>
 
   <div class="control-panel" id="controlPanel"></div>
 </div>
 
-<!-- Trending panel (toggled) -->
-<div class="trending-panel" id="trendingPanel" style="display:none">
-  <div class="trending-toolbar">
-    <span class="trending-title">Trending</span>
-    <label class="trending-depth-label">
-      Depth
-      <input type="number" id="trendingDepth" class="cp-input" min="50" max="2000" step="50" value="300">
-    </label>
-  </div>
-  <div class="trending-grid" id="trendingGrid"></div>
-</div>
-
-<!-- Status bar -->
+<!-- Status bar (matches PyQt: theme toggle left, frame counter right) -->
 <div class="status-bar">
-  <span>
+  <span class="status-left">
+    <button class="theme-toggle" id="themeToggle">Light</button>
     <span class="status-dot disconnected" id="statusDot"></span>
     <span id="statusText">Disconnected</span>
   </span>
-  <span>
-    <span class="stat-label" id="dimLabel"></span>
+  <span class="status-right">
+    <span id="dimLabel"></span>
+    <span id="frameCounter">Frame: <span class="stat-value" id="frameNum">--</span> | <span class="stat-value" id="fpsVal">--</span> Hz</span>
   </span>
 </div>
 
-<!-- Modular JS (order: colormaps -> renderer -> projections -> roi -> connection -> errors -> theme -> controls -> app) -->
-<script src="js/colormaps.js"></script>
-<script src="js/renderer.js"></script>
-<script src="js/projections.js"></script>
-<script src="js/roi.js"></script>
-<script src="js/overlays.js"></script>
-<script src="js/connection.js"></script>
-<script src="js/errors.js"></script>
-<script src="js/theme.js"></script>
-<script src="js/controls.js"></script>
-<script src="js/trending.js"></script>
-<script src="js/app.js"></script>
+<!-- Modular JS (order matters: controls builds CP sections first, then roi/overlays append theirs) -->
+<script src="js/colormaps.js?v=7"></script>
+<script src="js/renderer.js?v=7"></script>
+<script src="js/projections.js?v=7"></script>
+<script src="js/connection.js?v=7"></script>
+<script src="js/errors.js?v=7"></script>
+<script src="js/theme.js?v=7"></script>
+<script src="js/controls.js?v=7"></script>
+<script src="js/roi.js?v=7"></script>
+<script src="js/overlays.js?v=7"></script>
+<script src="js/trending.js?v=7"></script>
+<script src="js/app.js?v=7"></script>
 
 </body>
 </html>

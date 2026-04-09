@@ -1,38 +1,36 @@
 "use strict";
 /**
- * roi.js — Interactive Region-of-Interest overlay for beam viewer.
+ * roi.js — Interactive Region-of-Interest for beam viewer.
  *
- * Click-drag on the image canvas to draw an ROI rectangle.
+ * Click-drag on the full image canvas to draw an ROI rectangle.
  * On mouse-up the selection is sent to POST /roi.
- * Clear and Center buttons call DELETE /roi and POST /roi/center.
- * A secondary cropped image panel shows the ROI with projections.
+ * Clear/Center buttons are in the Analysis section (controls.js).
  *
- * Expects DOM from index.html:
- *   - #beamCanvas inside .canvas-area
- *   - #controlPanel sidebar (ROI section appended there)
+ * When an ROI is active, the ROI image pane and ROI projection areas
+ * in the main viewer are shown (matching the PyQt layout where
+ * image_pane_2, h_proj_2, v_proj_2 become visible).
  *
  * Public API (attached to window.BeamROI):
  *   - updateFromFrame(roiData)  — called each WS frame with msg.roi
  */
 var BeamROI = (function () {
   // -----------------------------------------------------------------------
-  // Helper
-  // -----------------------------------------------------------------------
-  function el(tag, cls, text) {
-    var e = document.createElement(tag);
-    if (cls) e.className = cls;
-    if (text) e.textContent = text;
-    return e;
-  }
-
-  // -----------------------------------------------------------------------
-  // DOM references
+  // DOM references — main viewer panes
   // -----------------------------------------------------------------------
   var canvas = document.getElementById("beamCanvas");
   var canvasArea = canvas.closest(".canvas-area");
-  var panel = document.getElementById("controlPanel");
 
-  // Overlay canvas for ROI rectangle (same pixel size as beam canvas)
+  // ROI viewer panes (in main layout, hidden by default)
+  var roiImagePane = document.getElementById("roiImagePane");
+  var roiCanvas = document.getElementById("roiCanvas");
+  var roiHProjArea = document.getElementById("roiHProjArea");
+  var roiVProjArea = document.getElementById("roiVProjArea");
+  var roiHProjCanvas = document.getElementById("roiHProjCanvas");
+  var roiVProjCanvas = document.getElementById("roiVProjCanvas");
+
+  var roiCtx = roiCanvas ? roiCanvas.getContext("2d") : null;
+
+  // Overlay canvas for ROI rectangle on full image
   var overlay = document.createElement("canvas");
   overlay.id = "roiOverlay";
   overlay.style.cssText =
@@ -40,85 +38,6 @@ var BeamROI = (function () {
     "pointer-events:none;image-rendering:pixelated;";
   canvasArea.appendChild(overlay);
   var octx = overlay.getContext("2d");
-
-  // -----------------------------------------------------------------------
-  // Inject ROI-specific styles (complement cp-* classes from theme.css)
-  // -----------------------------------------------------------------------
-  var style = document.createElement("style");
-  style.textContent =
-    ".roi-info { color:var(--text-dim); font-size:11px; flex:1; text-align:right; }" +
-    ".roi-preview { margin-top:6px; display:flex; gap:4px; align-items:flex-start; }" +
-    ".roi-preview canvas { background:var(--image-bg); image-rendering:pixelated; display:block; }" +
-    ".roi-proj-col { display:flex; flex-direction:column; gap:4px; }" +
-    ".roi-xproj-wrap { margin-top:4px; }";
-  document.head.appendChild(style);
-
-  // -----------------------------------------------------------------------
-  // Build ROI section in control panel (uses cp-section pattern)
-  // -----------------------------------------------------------------------
-  var section = el("div", "cp-section");
-
-  // Collapsible header
-  var header = el("div", "cp-section-header");
-  var chevron = el("span", "cp-chevron", "\u25BE");
-  header.appendChild(chevron);
-  header.appendChild(document.createTextNode(" ROI"));
-  header.addEventListener("click", function () {
-    if (body.style.display === "none") {
-      body.style.display = "";
-      chevron.textContent = "\u25BE";
-    } else {
-      body.style.display = "none";
-      chevron.textContent = "\u25B8";
-    }
-  });
-  section.appendChild(header);
-
-  // Section body
-  var body = el("div", "cp-section-body");
-
-  // Controls row: Clear / Center / info
-  var btnRow = el("div", "cp-btn-row");
-  var clearBtn = el("button", "cp-btn", "Clear");
-  clearBtn.disabled = true;
-  var centerBtn = el("button", "cp-btn", "Center");
-  centerBtn.disabled = true;
-  var roiInfo = el("span", "roi-info", "Draw on image");
-  btnRow.appendChild(clearBtn);
-  btnRow.appendChild(centerBtn);
-  btnRow.appendChild(roiInfo);
-  body.appendChild(btnRow);
-
-  // Preview area (hidden until ROI is active)
-  var previewWrap = el("div", "roi-preview");
-  previewWrap.style.display = "none";
-  var roiCanvas = document.createElement("canvas");
-  roiCanvas.width = 200;
-  roiCanvas.height = 200;
-  var projCol = el("div", "roi-proj-col");
-  var roiProjYCanvas = document.createElement("canvas");
-  roiProjYCanvas.width = 50;
-  roiProjYCanvas.height = 200;
-  projCol.appendChild(roiProjYCanvas);
-  previewWrap.appendChild(roiCanvas);
-  previewWrap.appendChild(projCol);
-  body.appendChild(previewWrap);
-
-  // X projection below the preview
-  var xProjWrap = el("div", "roi-xproj-wrap");
-  xProjWrap.style.display = "none";
-  var roiProjXCanvas = document.createElement("canvas");
-  roiProjXCanvas.width = 200;
-  roiProjXCanvas.height = 50;
-  xProjWrap.appendChild(roiProjXCanvas);
-  body.appendChild(xProjWrap);
-
-  section.appendChild(body);
-  panel.appendChild(section);
-
-  var roiCtx = roiCanvas.getContext("2d");
-  var roiProjXCtx = roiProjXCanvas.getContext("2d");
-  var roiProjYCtx = roiProjYCanvas.getContext("2d");
 
   // -----------------------------------------------------------------------
   // State
@@ -179,7 +98,7 @@ var BeamROI = (function () {
     if (w < 1 || h < 1) return;
 
     // Semi-transparent fill
-    octx.fillStyle = "rgba(0, 173, 181, 0.12)"; // accent at low opacity
+    octx.fillStyle = "rgba(0, 173, 181, 0.12)";
     octx.fillRect(roi.x0, roi.y0, w, h);
 
     // Dashed border in accent colour
@@ -258,13 +177,30 @@ var BeamROI = (function () {
     }).catch(function () {});
   }
 
-  clearBtn.addEventListener("click", function () {
-    fetch("../roi", { method: "DELETE" }).catch(function () {});
-  });
+  // -----------------------------------------------------------------------
+  // Show/hide ROI panes in main viewer (like PyQt show/hide)
+  // -----------------------------------------------------------------------
+  function showROIPanes() {
+    if (roiImagePane) roiImagePane.style.display = "flex";
+    if (roiHProjArea) roiHProjArea.style.display = "block";
+    if (roiVProjArea) roiVProjArea.style.display = "block";
+  }
 
-  centerBtn.addEventListener("click", function () {
-    fetch("../roi/center", { method: "POST" }).catch(function () {});
-  });
+  function hideROIPanes() {
+    if (roiImagePane) roiImagePane.style.display = "none";
+    if (roiHProjArea) roiHProjArea.style.display = "none";
+    if (roiVProjArea) roiVProjArea.style.display = "none";
+  }
+
+  // -----------------------------------------------------------------------
+  // Sync control panel ROI buttons (Clear / Center in Analysis section)
+  // -----------------------------------------------------------------------
+  function syncRoiButtons(hasROI) {
+    if (typeof ControlPanel !== "undefined") {
+      if (ControlPanel.clearRoiBtn) ControlPanel.clearRoiBtn.disabled = !hasROI;
+      if (ControlPanel.centerRoiBtn) ControlPanel.centerRoiBtn.disabled = !hasROI;
+    }
+  }
 
   // -----------------------------------------------------------------------
   // Update from WS frame data
@@ -272,30 +208,22 @@ var BeamROI = (function () {
   function updateFromFrame(roiData) {
     if (!roiData || !roiData.active) {
       currentROI = null;
-      clearBtn.disabled = true;
-      centerBtn.disabled = true;
-      roiInfo.textContent = "Draw on image";
-      previewWrap.style.display = "none";
-      xProjWrap.style.display = "none";
+      syncRoiButtons(false);
+      hideROIPanes();
       drawROI();
       return;
     }
 
     var r = roiData.roi;
     currentROI = { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1 };
-    clearBtn.disabled = false;
-    centerBtn.disabled = false;
-
-    var w = r.x1 - r.x0;
-    var h = r.y1 - r.y0;
-    roiInfo.textContent = w + "\u00d7" + h + " @ (" + r.x0 + "," + r.y0 + ")";
-
+    syncRoiButtons(true);
+    showROIPanes();
     drawROI();
     fetchROIFrame();
   }
 
   // -----------------------------------------------------------------------
-  // Fetch and render ROI cropped frame
+  // Fetch and render ROI cropped frame + projections
   // -----------------------------------------------------------------------
   var roiFetchPending = false;
 
@@ -310,19 +238,18 @@ var BeamROI = (function () {
       .then(function (data) {
         roiFetchPending = false;
         if (!data.active || !data.metadata) {
-          previewWrap.style.display = "none";
-          xProjWrap.style.display = "none";
+          hideROIPanes();
           return;
         }
-        previewWrap.style.display = "";
-        xProjWrap.style.display = "";
 
         if (data.image_b64_png) {
           renderROIImage(data.image_b64_png);
         }
         if (data.projections) {
-          renderProjX(data.projections.x_projection);
-          renderProjY(data.projections.y_projection);
+          // Render ROI projections via the Projections module
+          if (typeof Projections !== "undefined" && Projections.updateROI) {
+            Projections.updateROI(data.projections);
+          }
         }
       })
       .catch(function () {
@@ -331,6 +258,7 @@ var BeamROI = (function () {
   }
 
   function renderROIImage(pngB64) {
+    if (!roiCtx) return;
     var img = new Image();
     img.onload = function () {
       roiCanvas.width = img.naturalWidth;
@@ -338,52 +266,6 @@ var BeamROI = (function () {
       roiCtx.drawImage(img, 0, 0);
     };
     img.src = "data:image/png;base64," + pngB64;
-  }
-
-  function renderProjX(data) {
-    if (!data || data.length === 0) return;
-    var w = Math.min(data.length, 240);
-    var h = 50;
-    roiProjXCanvas.width = w;
-    roiProjXCanvas.height = h;
-    roiProjXCtx.clearRect(0, 0, w, h);
-
-    var max = 0;
-    for (var i = 0; i < data.length; i++) {
-      if (data[i] > max) max = data[i];
-    }
-    if (max === 0) return;
-
-    var step = data.length / w;
-    roiProjXCtx.fillStyle = "var(--h-curve, rgba(0,229,255,0.6))";
-    for (var i = 0; i < w; i++) {
-      var idx = Math.floor(i * step);
-      var barH = (data[idx] / max) * h;
-      roiProjXCtx.fillRect(i, h - barH, 1, barH);
-    }
-  }
-
-  function renderProjY(data) {
-    if (!data || data.length === 0) return;
-    var w = 50;
-    var h = Math.min(data.length, 240);
-    roiProjYCanvas.width = w;
-    roiProjYCanvas.height = h;
-    roiProjYCtx.clearRect(0, 0, w, h);
-
-    var max = 0;
-    for (var i = 0; i < data.length; i++) {
-      if (data[i] > max) max = data[i];
-    }
-    if (max === 0) return;
-
-    var step = data.length / h;
-    roiProjYCtx.fillStyle = "var(--v-curve, rgba(206,147,216,0.6))";
-    for (var i = 0; i < h; i++) {
-      var idx = Math.floor(i * step);
-      var barW = (data[idx] / max) * w;
-      roiProjYCtx.fillRect(0, i, barW, 1);
-    }
   }
 
   // -----------------------------------------------------------------------
