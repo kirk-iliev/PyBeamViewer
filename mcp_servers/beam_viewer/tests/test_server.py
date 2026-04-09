@@ -16,7 +16,7 @@ def mock_bridge():
     bridge = MagicMock()
     bridge.get_streaming_status.return_value = {
         "streaming": True,
-        "connected": False,
+        "connected": True,
         "frame_count": 0,
     }
     return bridge
