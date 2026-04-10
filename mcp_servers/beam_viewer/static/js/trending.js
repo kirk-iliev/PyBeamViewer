@@ -225,15 +225,20 @@ var Trending = (function() {
       ctx.fillText(Math.round(frameNumbers[n - 1]).toString(), pad.left + plotW, xLabelY);
     }
 
-    // Draw trace A
+    // Clip traces to the plot area so spikes are cut at axis limits
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(pad.left, pad.top, plotW, plotH);
+    ctx.clip();
+
     if (hasA) {
       drawTrace(ctx, dataA, n, xMap, yMap, resolveColor(opts.colorA));
     }
-
-    // Draw trace B
     if (hasB) {
       drawTrace(ctx, dataB, n, xMap, yMap, resolveColor(opts.colorB));
     }
+
+    ctx.restore();
 
     // Stats legend (top right, matching PyQt: "labelA: val  labelB: val")
     var statsStr = "";

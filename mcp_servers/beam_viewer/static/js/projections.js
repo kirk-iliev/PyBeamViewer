@@ -133,6 +133,12 @@ var Projections = (function() {
     ctx.lineTo(pad.left + plotW, pad.top + plotH);
     ctx.stroke();
 
+    // Clip curves to the plot area so spikes are cut at axis limits
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(pad.left, pad.top, plotW, plotH);
+    ctx.clip();
+
     // --- Draw projection curve ---
     var curveColor = opts.curveColor || COLORS.hCurve;
     ctx.strokeStyle = curveColor;
@@ -163,6 +169,8 @@ var Projections = (function() {
       ctx.stroke();
       ctx.setLineDash([]);
     }
+
+    ctx.restore();
 
     // --- Title label ---
     ctx.fillStyle = COLORS.text;
