@@ -21,6 +21,7 @@ from .dependencies import get_bridge, init_bridge
 from .routes import (
     analysis,
     background,
+    beamspots,
     camera,
     centroid,
     config,
@@ -83,6 +84,7 @@ def create_app(bridge: Any, *, dispatcher: Optional[Any] = None) -> FastAPI:
     app.include_router(streaming.router)
     app.include_router(background.router)
     app.include_router(analysis.router)
+    app.include_router(beamspots.router)
     app.include_router(roi.router)
     app.include_router(centroid.router)
     app.include_router(display.router)

@@ -128,6 +128,38 @@ class HeadlessBridge:
         return [{"filename": p.name, "path": str(p)} for p in files]
 
     # ------------------------------------------------------------------
+    # Beamspot grid detection
+    # ------------------------------------------------------------------
+
+    def get_beamspot_grid(self) -> Optional[dict]:
+        """Detect the beamspot grid from current frame projections.
+
+        Returns a dict with x_peaks, y_peaks, and grid entries,
+        or None if no frame is available, or a dict with 'error' key
+        if peak detection fails.
+        """
+        fs = self._state.frame_state
+        if fs is None or fs.analysis is None:
+            return None
+
+        from analysis.beamspot_grid import detect_grid_peaks
+
+        try:
+            x_peaks, y_peaks = detect_grid_peaks(
+                fs.analysis.x_projection,
+                fs.analysis.y_projection,
+            )
+        except ValueError as exc:
+            return {"error": str(exc)}
+
+        grid = []
+        for row, y in enumerate(y_peaks):
+            for col, x in enumerate(x_peaks):
+                grid.append({"row": row, "col": col, "x": x, "y": y})
+
+        return {"x_peaks": x_peaks, "y_peaks": y_peaks, "grid": grid}
+
+    # ------------------------------------------------------------------
     # Analysis
     # ------------------------------------------------------------------
 
