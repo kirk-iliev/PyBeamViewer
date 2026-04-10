@@ -312,16 +312,23 @@ class TestROI:
         mock_controller.set_roi.assert_called_once_with(None)
 
     def test_center_roi(self, bridge, mock_controller, mock_state):
-        mock_controller.current_roi = (0, 0, 50, 50)
+        # Place a bright spot at (70, 80) inside a 100x100 ROI at (30, 40)-(130, 140)
+        mock_controller.current_roi = (30, 40, 130, 140)
+        frame = np.zeros((200, 300))
+        frame[75:85, 65:75] = 100.0  # bright spot near (70, 80) in image coords
         mock_fs = MagicMock()
-        mock_fs.frame = np.zeros((200, 300))
+        mock_fs.frame = frame
         mock_state.frame_state = mock_fs
 
         bridge.center_roi()
         mock_controller.set_roi.assert_called_once()
         args = mock_controller.set_roi.call_args[0][0]
-        # Center of 300x200 is (150, 100); ROI is 50x50
-        assert args == (125, 75, 175, 125)
+        # Centroid should be near (70, 80); half = max(100,100)//2 = 50
+        nx0, ny0, nx1, ny1 = args
+        cx, cy = (nx0 + nx1) // 2, (ny0 + ny1) // 2
+        assert abs(cx - 70) <= 1
+        assert abs(cy - 80) <= 1
+        assert nx1 - nx0 == 100  # square preserved
 
     def test_center_roi_no_roi(self, bridge, mock_controller):
         mock_controller.current_roi = None

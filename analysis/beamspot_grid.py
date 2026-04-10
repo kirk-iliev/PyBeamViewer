@@ -48,7 +48,13 @@ def detect_grid_peaks(
 
 
 def _find_top_peaks(projection: np.ndarray, n: int) -> List[int]:
-    """Return the *n* most prominent peaks in *projection*, sorted by position."""
+    """Return the *n* most prominent peaks in *projection*, sorted by position.
+
+    Selects the combination of *n* peaks whose spacing is most uniform
+    (lowest coefficient of variation).  This avoids spurious edge peaks
+    that may rival real beamspot peaks in prominence but break the
+    expected grid regularity.
+    """
     min_distance = max(1, len(projection) // (n * 2))
     peaks, properties = find_peaks(projection, distance=min_distance, prominence=0)
 
@@ -58,8 +64,37 @@ def _find_top_peaks(projection: np.ndarray, n: int) -> List[int]:
             f"in projection of length {len(projection)}"
         )
 
-    # Select the n most prominent peaks
+    if len(peaks) == n:
+        return sorted(peaks.tolist())
+
+    # Pre-filter to the top candidates by prominence (keep up to 2*n)
     prominences = properties["prominences"]
-    top_indices = np.argsort(prominences)[-n:]
-    selected = np.sort(peaks[top_indices])
-    return selected.tolist()
+    n_candidates = min(len(peaks), n * 2)
+    candidate_indices = np.argsort(prominences)[-n_candidates:]
+    candidate_peaks = np.sort(peaks[candidate_indices])
+
+    # Pick the n-subset with the most uniform spacing, using total
+    # prominence as a tiebreaker when spacing regularity is similar.
+    from itertools import combinations
+
+    # Build a prominence lookup for scoring
+    prom_lookup = dict(zip(peaks.tolist(), prominences.tolist()))
+
+    best_peaks = None
+    best_score = (-float("inf"),)
+
+    for combo in combinations(candidate_peaks, n):
+        spacings = np.diff(combo)
+        mean_sp = np.mean(spacings)
+        cv = np.std(spacings) / mean_sp if mean_sp > 0 else float("inf")
+        total_prom = sum(prom_lookup.get(int(p), 0) for p in combo)
+        # Primary: low CV (uniform spacing). Secondary: high prominence.
+        # Quantize CV to 0.05 bins so near-equal spacings don't override
+        # a much more prominent set.
+        cv_bin = round(cv / 0.05) * 0.05
+        score = (-cv_bin, total_prom)
+        if score > best_score:
+            best_score = score
+            best_peaks = combo
+
+    return list(best_peaks)

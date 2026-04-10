@@ -246,22 +246,48 @@ class HeadlessBridge:
         self._controller.set_roi(None)
 
     def center_roi(self) -> None:
-        """Center the ROI on the current frame centroid."""
+        """Re-center the ROI as a square around the intensity-weighted centroid.
+
+        Computes the centroid within the current ROI sub-patch and
+        repositions the ROI so the centroid is at its center.  Matches
+        the PyQt ``_on_center_roi_clicked`` behavior.
+        """
         roi = self._controller.current_roi
         fs = self._state.frame_state
         if roi is None or fs is None:
             return
+
         x0, y0, x1, y1 = roi
-        roi_w = x1 - x0
-        roi_h = y1 - y0
         frame = fs.frame
-        cy, cx = frame.shape[0] // 2, frame.shape[1] // 2
-        new_x0 = cx - roi_w // 2
-        new_y0 = cy - roi_h // 2
-        self._controller.set_roi((
-            new_x0, new_y0,
-            new_x0 + roi_w, new_y0 + roi_h,
-        ))
+        fh, fw = frame.shape[:2]
+
+        # Clamp to frame bounds
+        x0c, y0c = max(0, x0), max(0, y0)
+        x1c, y1c = min(fw, x1), min(fh, y1)
+        if x1c <= x0c or y1c <= y0c:
+            return
+
+        patch = frame[y0c:y1c, x0c:x1c].astype(np.float64)
+        total = patch.sum()
+        if total <= 0:
+            return
+
+        # Intensity-weighted centroid in full-image coordinates
+        col_idx = np.arange(x0c, x1c, dtype=np.float64)
+        row_idx = np.arange(y0c, y1c, dtype=np.float64)
+        cx = int(round(np.dot(patch.sum(axis=0), col_idx) / total))
+        cy = int(round(np.dot(patch.sum(axis=1), row_idx) / total))
+
+        # Square half-side = larger of the two current half-dimensions
+        half = max(x1c - x0c, y1c - y0c) // 2
+
+        # New ROI clamped to image bounds
+        nx0 = max(0, cx - half)
+        ny0 = max(0, cy - half)
+        nx1 = min(fw, cx + half)
+        ny1 = min(fh, cy + half)
+
+        self._controller.set_roi((nx0, ny0, nx1, ny1))
 
     # ------------------------------------------------------------------
     # Centroid / Drift
