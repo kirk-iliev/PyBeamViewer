@@ -17,7 +17,7 @@ Beam-viewer has its own 3-stage GitLab CI pipeline (`.gitlab-ci.yml`):
 
 The image is pushed to the GitLab Container Registry at `git.als.lbl.gov:5050/physics/production/beam-viewer/beam-viewer:latest`.
 
-On appsdev2, als-profiles' `docker-compose.yml` references this image via `${BEAM_VIEWER_REGISTRY}/beam-viewer:latest`. The `deploy.sh` script pulls it alongside all other MCP server images.
+On appsdev2, als-profiles' `docker-compose.yml` references this image directly (hardcoded path, no env var). The `deploy.sh` script pulls it alongside all other MCP server images.
 
 ## Why Host Networking Matters
 
@@ -43,7 +43,6 @@ Match the user's intent to one of these actions:
 
 - SSH access to appsdev2 (`ssh appsdev2` works)
 - als-profiles cloned on appsdev2 at `~/projects/als-profiles`
-- `.env.production` on appsdev2 includes `BEAM_VIEWER_REGISTRY=git.als.lbl.gov:5050/physics/production/beam-viewer`
 - No other process using port 8007 on appsdev2
 
 ### Step 1: Push to GitLab (triggers CI)
