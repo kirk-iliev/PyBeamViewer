@@ -531,6 +531,21 @@ class HeadlessBridge:
         metadata = self.get_frame_metadata()
         projections = self.get_projections()
         analysis = self.get_analysis_status()
+
+        # Beamspot grid detection (for projection overlay markers)
+        beamspots = None
+        if fs.analysis is not None:
+            from analysis.beamspot_grid import detect_grid_peaks
+
+            try:
+                x_peaks, y_peaks = detect_grid_peaks(
+                    fs.analysis.x_projection,
+                    fs.analysis.y_projection,
+                )
+                beamspots = {"x_peaks": x_peaks, "y_peaks": y_peaks}
+            except Exception:
+                pass
+
         roi = self.get_roi()
         drift = self.get_drift()
 
@@ -571,6 +586,7 @@ class HeadlessBridge:
             "streaming": self._controller.streaming,
             "background": self.get_background_status(),
             "colormap": self._state.colormap_name,
+            "beamspots": beamspots,
         }
 
 

@@ -34,6 +34,20 @@ var Projections = (function() {
   var PADDING = { top: 28, right: 12, bottom: 28, left: 50 };
   var FIT_DASH = [6, 4];
 
+  /** Compute a "nice" tick step for an axis spanning *range* units. */
+  function _niceStep(range, targetTicks) {
+    if (range <= 0) return 0;
+    var rough = range / targetTicks;
+    var pow10 = Math.pow(10, Math.floor(Math.log10(rough)));
+    var frac = rough / pow10;
+    var nice;
+    if (frac <= 1.5) nice = 1;
+    else if (frac <= 3) nice = 2;
+    else if (frac <= 7) nice = 5;
+    else nice = 10;
+    return nice * pow10;
+  }
+
   // -----------------------------------------------------------------------
   // Helper: Gaussian function  A * exp(-(x - mu)^2 / (2 * sigma^2)) + offset
   // -----------------------------------------------------------------------
@@ -133,23 +147,6 @@ var Projections = (function() {
     ctx.lineTo(pad.left + plotW, pad.top + plotH);
     ctx.stroke();
 
-    // X-axis ticks (pixel indices)
-    ctx.fillStyle = COLORS.axisText;
-    ctx.font = "10px monospace";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    var nXTicks = 5;
-    for (var t = 0; t <= nXTicks; t++) {
-      var tickIdx = Math.round((t / nXTicks) * (n - 1));
-      var tickX = xMap(tickIdx);
-      ctx.strokeStyle = COLORS.axis;
-      ctx.beginPath();
-      ctx.moveTo(tickX, pad.top + plotH);
-      ctx.lineTo(tickX, pad.top + plotH + 4);
-      ctx.stroke();
-      ctx.fillText(tickIdx.toString(), tickX, pad.top + plotH + 5);
-    }
-
     // Clip curves to the plot area so spikes are cut at axis limits
     ctx.save();
     ctx.beginPath();
@@ -189,14 +186,38 @@ var Projections = (function() {
 
     ctx.restore();
 
-    // --- Centroid marker — small yellow dot on the x-axis ---
-    if (fitParams && fitParams.success && fitParams.centroid != null) {
-      var dotX = xMap(fitParams.centroid);
-      var dotY = pad.top + plotH;
+    // --- X-axis ticks (pixel positions) ---
+    var xStep = _niceStep(n - 1, 5);
+    if (xStep > 0) {
+      ctx.strokeStyle = COLORS.axis;
+      ctx.lineWidth = 1;
+      ctx.fillStyle = COLORS.axisText;
+      ctx.font = "10px monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      for (var xt = 0; xt <= n - 1; xt += xStep) {
+        var xPx = xMap(xt);
+        ctx.beginPath();
+        ctx.moveTo(xPx, pad.top + plotH);
+        ctx.lineTo(xPx, pad.top + plotH + 4);
+        ctx.stroke();
+        ctx.fillText(xt.toString(), xPx, pad.top + plotH + 5);
+      }
+    }
+
+    // --- Beamspot peak markers (yellow dots on x-axis) ---
+    if (opts.peakMarkers && opts.peakMarkers.length > 0) {
       ctx.fillStyle = "#FFD700";
-      ctx.beginPath();
-      ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
-      ctx.fill();
+      for (var m = 0; m < opts.peakMarkers.length; m++) {
+        var peakIdx = opts.peakMarkers[m];
+        if (peakIdx >= 0 && peakIdx < n) {
+          var mx = xMap(peakIdx);
+          var my = pad.top + plotH;
+          ctx.beginPath();
+          ctx.arc(mx, my, 3.5, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+      }
     }
 
     // --- Title label ---
@@ -248,6 +269,7 @@ var Projections = (function() {
   var _lastVProj = null,   _lastVFit = null;
   var _lastROIHProj = null, _lastROIHFit = null;
   var _lastROIVProj = null, _lastROIVFit = null;
+  var _lastBeamspots = null;
 
   function init() {
     hCanvas = document.getElementById("hProjCanvas");
@@ -273,16 +295,19 @@ var Projections = (function() {
     _lastHFit  = analysis.x_fit    || null;
     _lastVProj = proj.y_projection || null;
     _lastVFit  = analysis.y_fit    || null;
+    _lastBeamspots = msg.beamspots || null;
 
     var C = getColors();
-    drawPlot(hCanvas, _lastHProj, _lastHFit, {
+    drawPlot(hCanvas, _lastHProj, null, {
       title: "Horizontal Projection  (Full Image)",
       curveColor: C.hCurve,
+      peakMarkers: _lastBeamspots ? _lastBeamspots.x_peaks : null,
     });
 
-    drawPlot(vCanvas, _lastVProj, _lastVFit, {
+    drawPlot(vCanvas, _lastVProj, null, {
       title: "Vertical Projection  (Full Image)",
       curveColor: C.vCurve,
+      peakMarkers: _lastBeamspots ? _lastBeamspots.y_peaks : null,
     });
   }
 
@@ -320,15 +345,17 @@ var Projections = (function() {
   function redrawAll() {
     var C = getColors();
     if (hCanvas && _lastHProj) {
-      drawPlot(hCanvas, _lastHProj, _lastHFit, {
+      drawPlot(hCanvas, _lastHProj, null, {
         title: "Horizontal Projection  (Full Image)",
         curveColor: C.hCurve,
+        peakMarkers: _lastBeamspots ? _lastBeamspots.x_peaks : null,
       });
     }
     if (vCanvas && _lastVProj) {
-      drawPlot(vCanvas, _lastVProj, _lastVFit, {
+      drawPlot(vCanvas, _lastVProj, null, {
         title: "Vertical Projection  (Full Image)",
         curveColor: C.vCurve,
+        peakMarkers: _lastBeamspots ? _lastBeamspots.y_peaks : null,
       });
     }
     if (roiHCanvas && _lastROIHProj) {
