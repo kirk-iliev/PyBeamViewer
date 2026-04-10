@@ -22,18 +22,20 @@ var Trending = (function() {
   // 3 sub-plots matching PyQt's _TrendSubPlot instances.
   // colorA/colorB starting with "--" are resolved as CSS custom properties
   // at draw time so they follow the active theme automatically.
+  // Order matches PyQt TrendingPanel: ROI σ (top), Full σ (middle), Drift (bottom)
+  // Visibility is conditional — each subplot shown only when its feature is active.
   var SUBPLOT_DEFS = [
-    {
-      title: "Full Image Beam Size",
-      keyA: "sigma_x",     keyB: "sigma_y",
-      labelA: "\u03C3x",   labelB: "\u03C3y",
-      colorA: "--h-curve",  colorB: "--v-curve",
-    },
     {
       title: "ROI Beam Size",
       keyA: "roi_sigma_x",  keyB: "roi_sigma_y",
       labelA: "\u03C3x",    labelB: "\u03C3y",
       colorA: "--h-curve",   colorB: "--v-curve",
+    },
+    {
+      title: "Full Image Beam Size",
+      keyA: "sigma_x",     keyB: "sigma_y",
+      labelA: "\u03C3x",   labelB: "\u03C3y",
+      colorA: "--h-curve",  colorB: "--v-curve",
     },
     {
       title: "Centroid Drift",
@@ -458,8 +460,8 @@ var Trending = (function() {
    */
   function onWSMessage(msg) {
     if (msg.analysis) {
-      setSubplotActive(0, !!msg.analysis.fit_full_enabled);
-      setSubplotActive(1, !!msg.analysis.fit_roi_enabled);
+      setSubplotActive(0, !!msg.analysis.fit_roi_enabled);   // ROI Beam Size (top)
+      setSubplotActive(1, !!msg.analysis.fit_full_enabled);  // Full Image Beam Size
     }
     if (msg.drift !== undefined) {
       setSubplotActive(2, !!(msg.drift && msg.drift.has_reference));
