@@ -22,8 +22,10 @@ var Trending = (function() {
   // 3 sub-plots matching PyQt's _TrendSubPlot instances.
   // colorA/colorB starting with "--" are resolved as CSS custom properties
   // at draw time so they follow the active theme automatically.
-  // Order matches PyQt TrendingPanel: ROI σ (top), Full σ (middle), Drift (bottom)
-  // Visibility is conditional — each subplot shown only when its feature is active.
+  // 2 sub-plots matching PyQt TrendingPanel when Fit ROI is active:
+  //   1. ROI Beam Size — σx and σy from the ROI Gaussian fit
+  //   2. Centroid      — centroid x and y position vs. frame number
+  // Both are shown/hidden together when fit_roi_enabled toggles.
   var SUBPLOT_DEFS = [
     {
       title: "ROI Beam Size",
@@ -32,16 +34,10 @@ var Trending = (function() {
       colorA: "--h-curve",   colorB: "--v-curve",
     },
     {
-      title: "Full Image Beam Size",
-      keyA: "sigma_x",     keyB: "sigma_y",
-      labelA: "\u03C3x",   labelB: "\u03C3y",
-      colorA: "--h-curve",  colorB: "--v-curve",
-    },
-    {
       title: "Centroid Drift",
-      keyA: "drift_x",      keyB: "drift_y",
-      labelA: "\u0394x",    labelB: "\u0394y",
-      colorA: "#2ecc71",     colorB: "#e67e22",  // green + orange (theme-independent)
+      keyA: "centroid_x",   keyB: "centroid_y",
+      labelA: "x",           labelB: "y",
+      colorA: "#2ecc71",     colorB: "#e67e22",  // green + orange
     },
   ];
 
@@ -460,11 +456,9 @@ var Trending = (function() {
    */
   function onWSMessage(msg) {
     if (msg.analysis) {
-      setSubplotActive(0, !!msg.analysis.fit_roi_enabled);   // ROI Beam Size (top)
-      setSubplotActive(1, !!msg.analysis.fit_full_enabled);  // Full Image Beam Size
-    }
-    if (msg.drift !== undefined) {
-      setSubplotActive(2, !!(msg.drift && msg.drift.has_reference));
+      var roiActive = !!msg.analysis.fit_roi_enabled;
+      setSubplotActive(0, roiActive);  // ROI Beam Size
+      setSubplotActive(1, roiActive);  // Centroid position
     }
 
     if (msg.trending && visible) {
