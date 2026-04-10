@@ -134,8 +134,9 @@ var Trending = (function() {
     ctx.textBaseline = "top";
     ctx.fillText(opts.title || "", pad.left, 4);
 
-    var hasA = dataA && dataA.length > 0;
-    var hasB = dataB && dataB.length > 0;
+    // Filter out leading nulls; treat an all-null array as empty
+    var hasA = dataA && dataA.some(function(v) { return v != null; });
+    var hasB = dataB && dataB.some(function(v) { return v != null; });
 
     if (!hasA && !hasB) {
       ctx.fillStyle = COLORS.textDim;
@@ -146,21 +147,21 @@ var Trending = (function() {
       return;
     }
 
-    // Compute combined data range from both traces
+    // Compute combined data range from both traces (skip nulls)
     var n = Math.max(hasA ? dataA.length : 0, hasB ? dataB.length : 0);
     var yMin = Infinity;
     var yMax = -Infinity;
 
     if (hasA) {
       for (var i = 0; i < dataA.length; i++) {
-        if (dataA[i] < yMin) yMin = dataA[i];
-        if (dataA[i] > yMax) yMax = dataA[i];
+        if (dataA[i] != null && dataA[i] < yMin) yMin = dataA[i];
+        if (dataA[i] != null && dataA[i] > yMax) yMax = dataA[i];
       }
     }
     if (hasB) {
       for (var i = 0; i < dataB.length; i++) {
-        if (dataB[i] < yMin) yMin = dataB[i];
-        if (dataB[i] > yMax) yMax = dataB[i];
+        if (dataB[i] != null && dataB[i] < yMin) yMin = dataB[i];
+        if (dataB[i] != null && dataB[i] > yMax) yMax = dataB[i];
       }
     }
 
@@ -239,15 +240,15 @@ var Trending = (function() {
     // Stats legend (top right, matching PyQt: "labelA: val  labelB: val")
     var statsStr = "";
     if (hasA) {
-      var lastA = dataA[dataA.length - 1];
-      statsStr += opts.labelA + ": " + formatVal(lastA);
+      var lastA = lastNonNull(dataA);
+      statsStr += opts.labelA + ": " + (lastA != null ? formatVal(lastA) : "\u2014\u2014");
     } else {
       statsStr += opts.labelA + ": \u2014\u2014";
     }
     statsStr += "    ";
     if (hasB) {
-      var lastB = dataB[dataB.length - 1];
-      statsStr += opts.labelB + ": " + formatVal(lastB);
+      var lastB = lastNonNull(dataB);
+      statsStr += opts.labelB + ": " + (lastB != null ? formatVal(lastB) : "\u2014\u2014");
     } else {
       statsStr += opts.labelB + ": \u2014\u2014";
     }
@@ -263,11 +264,20 @@ var Trending = (function() {
     ctx.lineWidth = 1.3;
     ctx.setLineDash([]);
     ctx.beginPath();
-    ctx.moveTo(xMap(0), yMap(data[0]));
-    for (var j = 1; j < data.length; j++) {
-      ctx.lineTo(xMap(j), yMap(data[j]));
+    var penDown = false;
+    for (var j = 0; j < data.length; j++) {
+      if (data[j] == null) { penDown = false; continue; }
+      if (!penDown) { ctx.moveTo(xMap(j), yMap(data[j])); penDown = true; }
+      else          { ctx.lineTo(xMap(j), yMap(data[j])); }
     }
     ctx.stroke();
+  }
+
+  function lastNonNull(arr) {
+    for (var i = arr.length - 1; i >= 0; i--) {
+      if (arr[i] != null) return arr[i];
+    }
+    return null;
   }
 
   function formatVal(v) {
