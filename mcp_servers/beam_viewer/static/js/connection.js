@@ -35,7 +35,13 @@ var Connection = (function() {
     setState("reconnecting");
 
     var proto = location.protocol === "https:" ? "wss:" : "ws:";
-    var url   = proto + "//" + location.host + "/frames/ws/stream";
+    // When proxied (e.g. /panel/beam-viewer/panel/), strip the panel UI
+    // subpath to get the proxy base, then append the WS endpoint.
+    var panelIdx = location.pathname.indexOf("/panel/");
+    var base = panelIdx >= 0
+      ? location.pathname.substring(0, panelIdx)  // e.g. "/panel/beam-viewer"
+      : "";
+    var url = proto + "//" + location.host + base + "/frames/ws/stream";
     ws = new WebSocket(url);
 
     ws.onopen = function() {
