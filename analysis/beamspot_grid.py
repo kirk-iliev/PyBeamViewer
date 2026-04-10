@@ -17,7 +17,8 @@ from scipy.signal import find_peaks
 def detect_grid_peaks(
     x_projection: np.ndarray,
     y_projection: np.ndarray,
-    expected_peaks: int = 4,
+    expected_cols: int = 5,
+    expected_rows: int = 4,
 ) -> Tuple[List[int], List[int]]:
     """Find peak positions in each projection.
 
@@ -27,8 +28,10 @@ def detect_grid_peaks(
         1-D horizontal projection (length = image width).
     y_projection : np.ndarray
         1-D vertical projection (length = image height).
-    expected_peaks : int
-        Number of peaks expected in each projection.
+    expected_cols : int
+        Number of column peaks expected in the horizontal projection.
+    expected_rows : int
+        Number of row peaks expected in the vertical projection.
 
     Returns
     -------
@@ -40,10 +43,11 @@ def detect_grid_peaks(
     Raises
     ------
     ValueError
-        If fewer than *expected_peaks* peaks are found in either projection.
+        If fewer than the expected number of peaks are found in either
+        projection.
     """
-    x_peaks = _find_top_peaks(x_projection, expected_peaks)
-    y_peaks = _find_top_peaks(y_projection, expected_peaks)
+    x_peaks = _find_top_peaks(x_projection, expected_cols)
+    y_peaks = _find_top_peaks(y_projection, expected_rows)
     return x_peaks, y_peaks
 
 
