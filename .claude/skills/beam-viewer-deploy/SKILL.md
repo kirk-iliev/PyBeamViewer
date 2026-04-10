@@ -13,7 +13,7 @@ Beam-viewer has its own 3-stage GitLab CI pipeline (`.gitlab-ci.yml`):
 |-------|------|---------|
 | checks | lint, test | Ruff linting + pytest unit tests (advisory, `allow_failure: true`) |
 | docker-build | build-beam-viewer | Builds container image, tags with `$CI_COMMIT_SHORT_SHA` |
-| release | release | Re-tags as `:latest` (main branch only, manual trigger) |
+| release | release | Re-tags as `:latest` (web-panel branch only, manual trigger) |
 
 The image is pushed to the GitLab Container Registry at `git.als.lbl.gov:5050/physics/production/beam-viewer/beam-viewer:latest`.
 
@@ -49,7 +49,7 @@ Match the user's intent to one of these actions:
 ### Step 1: Push to GitLab (triggers CI)
 
 ```bash
-NO_PROXY=git.als.lbl.gov git push gitlab main
+NO_PROXY=git.als.lbl.gov git push gitlab web-panel
 ```
 
 ### Step 2: Monitor CI pipeline
@@ -86,7 +86,7 @@ Same flow as Deploy — push, CI, release, deploy.sh:
 
 ```bash
 # 1. Push changes to GitLab
-NO_PROXY=git.als.lbl.gov git push gitlab main
+NO_PROXY=git.als.lbl.gov git push gitlab web-panel
 
 # 2. Wait for CI pipeline to reach "manual" status (checks + build pass)
 
@@ -180,7 +180,7 @@ Compare what you see in the screenshot against what the PyQt source says. Identi
 Make the minimal local change (HTML, CSS, or JS). Then push and redeploy:
 ```bash
 # Push changes to GitLab
-NO_PROXY=git.als.lbl.gov git push gitlab main
+NO_PROXY=git.als.lbl.gov git push gitlab web-panel
 
 # Wait for CI → trigger release → deploy
 ssh appsdev2 "cd ~/projects/als-profiles && ./scripts/deploy.sh"
