@@ -55,5 +55,5 @@ release:
     - docker tag  $REGISTRY/beam-viewer:$CI_COMMIT_SHORT_SHA $REGISTRY/beam-viewer:latest
     - docker push $REGISTRY/beam-viewer:latest
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "web-panel"
       when: manual
