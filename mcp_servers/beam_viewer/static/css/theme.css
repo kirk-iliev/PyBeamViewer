@@ -81,8 +81,7 @@ body {
 .main {
   flex: 1;               /* grow to fill body's flex height             */
   min-height: 0;         /* allow shrinking below content height        */
-  display: grid;
-  grid-template-columns: 1fr 320px;
+  display: flex;
   overflow: hidden;
 }
 
@@ -91,8 +90,10 @@ body {
 /* Columns: image (2fr) | projections (3fr) | trending (2fr, optional) */
 /* ------------------------------------------------------------------ */
 .viewer-area {
+  flex: 4;
   display: flex;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -244,8 +245,9 @@ body {
 /* Control panel (right side, 320px fixed — matches PyQt)              */
 /* ------------------------------------------------------------------ */
 .control-panel {
+  flex: 1;
+  min-width: 200px;
   background: var(--surface);
-  border-left: 1px solid var(--border);
   overflow-y: auto;
   font-size: 12px;
 }
@@ -416,6 +418,30 @@ body {
 
 .stat-label { color: var(--text-dim); }
 .stat-value { color: var(--text); font-weight: 600; }
+
+/* ------------------------------------------------------------------ */
+/* Splitter handles (drag-to-resize between columns)                   */
+/* ------------------------------------------------------------------ */
+.splitter {
+  flex: 0 0 5px;
+  cursor: col-resize;
+  background: var(--border);
+  position: relative;
+  z-index: 10;
+  transition: background 0.15s;
+}
+.splitter:hover,
+.splitter.active {
+  background: var(--accent);
+}
+body.splitter-dragging {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+body.splitter-dragging iframe,
+body.splitter-dragging canvas {
+  pointer-events: none;
+}
 
 /* ------------------------------------------------------------------ */
 /* Error state overlays                                                */

@@ -52,6 +52,11 @@
     Trending.init();
   }
 
+  // -- Splitters (drag-to-resize columns) -----------------------------------
+  if (typeof Splitters !== "undefined") {
+    Splitters.init();
+  }
+
   // -- Frame handler ------------------------------------------------------
   Connection.onFrame(function(msg) {
     // Track colormap from WS readback (validated against renderer LUTs)

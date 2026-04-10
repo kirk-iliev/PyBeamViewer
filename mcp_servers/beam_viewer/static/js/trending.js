@@ -348,6 +348,10 @@ var Trending = (function() {
     if (panelEl) {
       panelEl.style.display = visible ? "" : "none";
     }
+    var trendingSplitter = document.getElementById("trendingSplitter");
+    if (trendingSplitter) {
+      trendingSplitter.style.display = visible ? "" : "none";
+    }
     if (visible) {
       refresh();
       startPolling();
