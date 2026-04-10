@@ -20,7 +20,7 @@ test:
   stage: checks
   image: python:3.12-slim
   script:
-    - pip install --no-cache-dir pytest numpy scipy caproto fastapi uvicorn Pillow websockets pydantic
+    - pip install --no-cache-dir pytest pytest-asyncio httpx numpy scipy caproto fastapi uvicorn Pillow websockets pydantic
     - export PYTHONPATH=$PWD:$PWD/mcp_servers
     - pytest mcp_servers/beam_viewer/tests/ -v --tb=short
         --override-ini="addopts=" --override-ini="testpaths=mcp_servers"
