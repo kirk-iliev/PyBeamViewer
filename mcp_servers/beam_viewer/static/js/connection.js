@@ -37,7 +37,7 @@ var Connection = (function() {
     var proto = location.protocol === "https:" ? "wss:" : "ws:";
     // When proxied (e.g. /panel/beam-viewer/panel/), strip the panel UI
     // subpath to get the proxy base, then append the WS endpoint.
-    var panelIdx = location.pathname.indexOf("/panel/");
+    var panelIdx = location.pathname.lastIndexOf("/panel/");
     var base = panelIdx >= 0
       ? location.pathname.substring(0, panelIdx)  // e.g. "/panel/beam-viewer"
       : "";
