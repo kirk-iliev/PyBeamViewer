@@ -465,10 +465,6 @@ class TestTrendingEndpoints:
         assert "count" in data
         assert "sigma_x" in data
 
-    def test_set_trending_visible(self, client, mock_bridge):
-        resp = client.post("/trending/visible", json={"visible": True})
-        assert resp.status_code == 200
-
     def test_set_trending_depth(self, client, mock_bridge):
         resp = client.post("/trending/depth", json={"depth": 500})
         assert resp.status_code == 200
@@ -555,6 +551,16 @@ class TestCentroidEndpoints:
         resp = client.post("/centroid/crosshair", json={"enabled": True})
         assert resp.status_code == 200
         mock_bridge.set_crosshair.assert_called_once_with(True)
+
+    def test_set_centroid_reference(self, client, mock_bridge):
+        resp = client.post("/centroid/reference", json={"x": 320.5, "y": 240.0})
+        assert resp.status_code == 200
+        mock_bridge.set_centroid_reference.assert_called_once_with(320.5, 240.0)
+
+    def test_clear_centroid_reference(self, client, mock_bridge):
+        resp = client.delete("/centroid/reference")
+        assert resp.status_code == 200
+        mock_bridge.clear_centroid_reference.assert_called_once()
 
 
 class TestFrameEndpoints:

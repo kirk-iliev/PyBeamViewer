@@ -366,6 +366,20 @@ class TestDrift:
         bridge.set_crosshair(True)
         mock_controller.set_crosshair_enabled.assert_called_once_with(True)
 
+    def test_set_centroid_reference(self, bridge, mock_controller):
+        bridge.set_centroid_reference(123.5, 456.25)
+        mock_controller.set_centroid_reference.assert_called_once_with(123.5, 456.25)
+
+    def test_set_centroid_reference_coerces_to_float(self, bridge, mock_controller):
+        bridge.set_centroid_reference(100, 200)  # ints
+        args = mock_controller.set_centroid_reference.call_args[0]
+        assert isinstance(args[0], float)
+        assert isinstance(args[1], float)
+
+    def test_clear_centroid_reference(self, bridge, mock_controller):
+        bridge.clear_centroid_reference()
+        mock_controller.clear_centroid_reference.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # Display
@@ -429,9 +443,6 @@ class TestTrending:
     def test_set_trending_depth(self, bridge, mock_controller):
         bridge.set_trending_depth(100)
         mock_controller.set_trending_depth.assert_called_once_with(100)
-
-    def test_set_trending_visible_noop(self, bridge):
-        bridge.set_trending_visible(False)  # Should not raise
 
     def test_get_trending_history_empty(self, bridge):
         history = bridge.get_trending_history()
@@ -603,6 +614,34 @@ class TestWSPayload:
         assert "analysis" in payload
         assert "roi" in payload
         assert "drift" in payload
+        # Sync fields used by controls.js to stay in sync with server state
+        assert payload["streaming"] is True
+        assert payload["background"] == {
+            "has_background": False,
+            "subtraction_enabled": False,
+        }
+        assert payload["colormap"] == "hot"
+
+    def test_build_ws_frame_payload_reflects_state_changes(
+        self, bridge, mock_state, mock_controller
+    ):
+        """The streaming/background/colormap sync fields must track live state."""
+        mock_fs = MagicMock()
+        mock_fs.frame = np.zeros((4, 4), dtype=np.uint16)
+        mock_fs.frame_number = 1
+        mock_fs.analysis = None
+        mock_state.frame_state = mock_fs
+
+        mock_controller.streaming = False
+        mock_state.background_frame = np.zeros((4, 4))
+        mock_state.bg_subtraction_enabled = True
+        mock_state.colormap_name = "viridis"
+
+        payload = bridge.build_ws_frame_payload()
+        assert payload["streaming"] is False
+        assert payload["background"]["has_background"] is True
+        assert payload["background"]["subtraction_enabled"] is True
+        assert payload["colormap"] == "viridis"
 
 
 # ---------------------------------------------------------------------------

@@ -25,3 +25,9 @@ class DriftData(BaseModel):
 
 class CrosshairSet(BaseModel):
     enabled: bool
+
+
+class CentroidReferenceSet(BaseModel):
+    """Set the centroid reference to a fixed full-frame pixel coordinate."""
+    x: float
+    y: float

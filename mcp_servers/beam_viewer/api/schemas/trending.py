@@ -14,10 +14,6 @@ class TrendingDepthSet(BaseModel):
     depth: int = Field(..., ge=50, le=2000, description="History depth in frames")
 
 
-class TrendingVisibleSet(BaseModel):
-    visible: bool
-
-
 class TrendingHistory(BaseModel):
     count: int
     frame_number: list[float]

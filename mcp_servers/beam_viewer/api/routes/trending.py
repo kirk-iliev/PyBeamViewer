@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from ..headless_bridge import HeadlessBridge
 from ..dependencies import get_bridge
 from ..schemas.common import AckResponse
-from ..schemas.trending import TrendingConfig, TrendingDepthSet, TrendingHistory, TrendingVisibleSet
+from ..schemas.trending import TrendingConfig, TrendingDepthSet, TrendingHistory
 
 router = APIRouter(prefix="/trending", tags=["Trending"])
 
@@ -16,14 +16,6 @@ router = APIRouter(prefix="/trending", tags=["Trending"])
 def get_trending_config(bridge: HeadlessBridge = Depends(get_bridge)):
     """Get trending panel configuration."""
     return bridge.get_trending_config()
-
-
-@router.post("/visible", response_model=AckResponse)
-def set_trending_visible(body: TrendingVisibleSet, bridge: HeadlessBridge = Depends(get_bridge)):
-    """Show or hide the trending panel."""
-    bridge.set_trending_visible(body.visible)
-    action = "shown" if body.visible else "hidden"
-    return AckResponse(message=f"Trending panel {action}")
 
 
 @router.post("/depth", response_model=AckResponse)

@@ -180,6 +180,7 @@ var ControlPanel = (function() {
   var centerRoiBtn = makeButton("\u2295  Center ROI", analysisBody, {disabled: true});
 
   var showCrosshairBtn = makeToggleButton("Show Centroid Ref", analysisBody, {disabled: true});
+  var setRefBtn = makeButton("\u29BF  Set Reference", analysisBody, {disabled: true});
 
   var trendingBtn = makeToggleButton("\uD83D\uDCC8  Trending", analysisBody);
   trendingBtn.addEventListener("click", function() {
@@ -188,22 +189,6 @@ var ControlPanel = (function() {
       trendingBtn.classList.toggle("active");
     }
   });
-
-  var trendingDepthRow = makeRow("History:", analysisBody);
-  var trendingDepthInput = document.createElement("input");
-  trendingDepthInput.type = "number";
-  trendingDepthInput.className = "cp-input";
-  trendingDepthInput.min = "50";
-  trendingDepthInput.max = "2000";
-  trendingDepthInput.step = "50";
-  trendingDepthInput.value = "300";
-  trendingDepthInput.disabled = true;
-  trendingDepthRow.appendChild(trendingDepthInput);
-  var framesLabel = document.createElement("span");
-  framesLabel.className = "cp-label";
-  framesLabel.style.minWidth = "auto";
-  framesLabel.textContent = "frames";
-  trendingDepthRow.appendChild(framesLabel);
 
   // -- Image Settings section (matches PyQt "Image Settings" group) --------
   var dispBody = makeSection("Image Settings", panel);
@@ -292,6 +277,16 @@ var ControlPanel = (function() {
       if (typeof Overlays !== "undefined" && Overlays.setCrosshairEnabled) {
         Overlays.setCrosshairEnabled(newState);
       }
+    }).catch(function() {});
+  });
+
+  // Set Reference — captures the current live centroid as the new reference
+  var lastLiveCentroid = null;
+  setRefBtn.addEventListener("click", function() {
+    if (!lastLiveCentroid) return;
+    postJSON("/centroid/reference", {
+      x: lastLiveCentroid.x,
+      y: lastLiveCentroid.y,
     }).catch(function() {});
   });
 
@@ -420,6 +415,14 @@ var ControlPanel = (function() {
     }
     if (msg.colormap) {
       cmapSelect.value = msg.colormap;
+    }
+    // Track live centroid so the Set Reference button can capture it
+    if (msg.drift && msg.drift.live) {
+      lastLiveCentroid = {x: msg.drift.live.x, y: msg.drift.live.y};
+      setRefBtn.disabled = false;
+    } else {
+      lastLiveCentroid = null;
+      setRefBtn.disabled = true;
     }
   }
 

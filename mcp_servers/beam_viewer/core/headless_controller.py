@@ -46,6 +46,7 @@ from mcp_servers.beam_viewer.config.config import (
     set_active_background_path,
     save_centroid_reference,
     get_centroid_reference,
+    clear_centroid_reference,
     save_crosshair_enabled,
     get_crosshair_enabled,
 )
@@ -217,6 +218,18 @@ class HeadlessController:
 
     def _on_analysis_done(self, analyzed_state: FrameState) -> None:
         self.state.frame_state = analyzed_state
+
+        # Update live centroid for drift tracking from the full-image fit.
+        # ROI-fit results (when enabled) overwrite this in the ROI fit
+        # callback below with a more accurate ROI-based centroid.
+        bp = analyzed_state.analysis
+        if bp is not None and bp.x_fit is not None and bp.y_fit is not None \
+                and bp.x_fit.success and bp.y_fit.success:
+            self.set_live_roi_centroid(
+                float(bp.x_fit.centroid),
+                float(bp.y_fit.centroid),
+            )
+
         self.dispatcher.emit(EVT_FRAME_READY, analyzed_state)
         self._append_trending_record(analyzed_state)
 
@@ -230,7 +243,11 @@ class HeadlessController:
             y1 = min(frame.shape[0], y1)
             if x1 > x0 and y1 > y0:
                 roi_frame = frame[y0:y1, x0:x1]
-                self.request_roi_fit(self._current_roi, roi_frame)
+                # Pass the clamped ROI so the live-centroid offset computed
+                # in request_roi_fit matches the origin of roi_frame. A
+                # stored ROI loaded from disk may contain negative values;
+                # using the unclamped tuple here would shift drift readings.
+                self.request_roi_fit((x0, y0, x1, y1), roi_frame)
 
     def _on_connection_changed(self, connected: bool) -> None:
         self.state.connected = connected
@@ -507,6 +524,16 @@ class HeadlessController:
                     calibration=self._calibration,
                 )
                 if seq == self._roi_seq:
+                    # Update live centroid for drift tracking. The ROI fit
+                    # produces ROI-local coordinates; offset by (x0, y0)
+                    # to convert back to full-frame pixel space so it can
+                    # be compared against the centroid_reference.
+                    if bp.x_fit is not None and bp.y_fit is not None \
+                            and bp.x_fit.success and bp.y_fit.success:
+                        self.set_live_roi_centroid(
+                            float(bp.x_fit.centroid) + x0,
+                            float(bp.y_fit.centroid) + y0,
+                        )
                     self.dispatcher.emit(EVT_ROI_FIT_DONE, bp)
                     self._update_trending_roi(bp)
             finally:
@@ -547,6 +574,11 @@ class HeadlessController:
         """Persist the centroid reference for the active prefix."""
         self._centroid_reference = (x, y)
         save_centroid_reference(self._active_prefix, x, y)
+
+    def clear_centroid_reference(self) -> None:
+        """Remove the centroid reference for the active prefix."""
+        self._centroid_reference = None
+        clear_centroid_reference(self._active_prefix)
 
     @property
     def crosshair_enabled(self) -> bool:

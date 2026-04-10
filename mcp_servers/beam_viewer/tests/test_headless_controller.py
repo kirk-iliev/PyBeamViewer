@@ -76,6 +76,7 @@ _COMMON_PATCHES = {
     "set_active_background_path": f"{_CONTROLLER_MODULE}.set_active_background_path",
     "save_centroid_reference": f"{_CONTROLLER_MODULE}.save_centroid_reference",
     "get_centroid_reference": f"{_CONTROLLER_MODULE}.get_centroid_reference",
+    "clear_centroid_reference": f"{_CONTROLLER_MODULE}.clear_centroid_reference",
     "save_crosshair_enabled": f"{_CONTROLLER_MODULE}.save_crosshair_enabled",
     "get_crosshair_enabled": f"{_CONTROLLER_MODULE}.get_crosshair_enabled",
     "load_calibration": f"{_CONTROLLER_MODULE}.load_calibration",
@@ -459,6 +460,13 @@ class TestCentroid:
         assert ctrl.centroid_reference == (100.5, 200.3)
         mocks["save_centroid_reference"].assert_called_with("TEST", 100.5, 200.3)
 
+    def test_clear_centroid_reference(self, controller_env):
+        ctrl, mocks = controller_env
+        ctrl.set_centroid_reference(100.0, 200.0)
+        ctrl.clear_centroid_reference()
+        assert ctrl.centroid_reference is None
+        mocks["clear_centroid_reference"].assert_called_with("TEST")
+
     def test_crosshair_toggle(self, controller_env):
         ctrl, mocks = controller_env
         ctrl.set_crosshair_enabled(True)
@@ -469,6 +477,99 @@ class TestCentroid:
         ctrl, _ = controller_env
         ctrl.set_live_roi_centroid(50.0, 60.0)
         assert ctrl.live_roi_centroid == (50.0, 60.0)
+
+    def test_on_analysis_done_updates_live_centroid_from_full_fit(
+        self, controller_env
+    ):
+        """Drift tracking falls back to the full-image fit centroid."""
+        ctrl, _ = controller_env
+
+        mock_xfit = MagicMock(success=True, centroid=123.4)
+        mock_yfit = MagicMock(success=True, centroid=234.5)
+        mock_bp = MagicMock(x_fit=mock_xfit, y_fit=mock_yfit)
+        analyzed_state = FrameState(
+            frame=np.zeros((50, 50), dtype=np.uint16),
+            frame_number=1,
+            analysis=mock_bp,
+            do_fit=True,
+        )
+
+        ctrl._on_analysis_done(analyzed_state)
+        assert ctrl.live_roi_centroid == (123.4, 234.5)
+
+    def test_on_analysis_done_skips_when_fit_failed(self, controller_env):
+        """Failed fits must not corrupt the live centroid state."""
+        ctrl, _ = controller_env
+        ctrl.set_live_roi_centroid(10.0, 20.0)
+
+        mock_bp = MagicMock(
+            x_fit=MagicMock(success=False, centroid=999.0),
+            y_fit=MagicMock(success=False, centroid=999.0),
+        )
+        analyzed_state = FrameState(
+            frame=np.zeros((50, 50), dtype=np.uint16),
+            frame_number=2,
+            analysis=mock_bp,
+            do_fit=True,
+        )
+        ctrl._on_analysis_done(analyzed_state)
+        # Previous live centroid is preserved
+        assert ctrl.live_roi_centroid == (10.0, 20.0)
+
+    def test_request_roi_fit_updates_live_centroid_with_global_offset(
+        self, controller_env
+    ):
+        """ROI fit centroids must be offset by (x0, y0) to land in full-frame coords."""
+        ctrl, mocks = controller_env
+
+        # ROI-local centroid (5, 7) inside an ROI starting at (100, 200)
+        # → global frame coordinate (105, 207).
+        mock_bp = MagicMock(
+            x_fit=MagicMock(success=True, centroid=5.0),
+            y_fit=MagicMock(success=True, centroid=7.0),
+        )
+        mocks["analyze_frame"].return_value = mock_bp
+
+        roi_frame = np.ones((20, 20), dtype=np.float64)
+        ctrl.request_roi_fit((100, 200, 120, 220), roi_frame)
+        time.sleep(0.3)
+
+        assert ctrl.live_roi_centroid == (105.0, 207.0)
+
+    def test_on_analysis_done_clamps_negative_roi_before_request(
+        self, controller_env
+    ):
+        """Negative ROI coordinates from disk must be clamped before slicing
+        AND before being used as the centroid offset — otherwise drift is
+        shifted by the difference between the stored and sliced origin."""
+        ctrl, mocks = controller_env
+        ctrl._fit_roi = True
+        ctrl._current_roi = (-10, -20, 30, 40)  # loaded from a stale config
+
+        # ROI-local centroid (2, 3) inside the clamped ROI that starts at (0, 0)
+        # → global frame coordinate (2, 3).
+        mock_bp = MagicMock(
+            x_fit=MagicMock(success=True, centroid=2.0),
+            y_fit=MagicMock(success=True, centroid=3.0),
+        )
+        mocks["analyze_frame"].return_value = mock_bp
+
+        # _on_analysis_done triggers request_roi_fit internally
+        frame_analysis = MagicMock(
+            x_fit=MagicMock(success=False),  # suppress full-fit centroid update
+            y_fit=MagicMock(success=False),
+        )
+        analyzed_state = FrameState(
+            frame=np.zeros((100, 100), dtype=np.uint16),
+            frame_number=1,
+            analysis=frame_analysis,
+            do_fit=True,
+        )
+        ctrl._on_analysis_done(analyzed_state)
+        time.sleep(0.3)
+
+        # Must be (2, 3), not (-8, -17) that a buggy unclamped offset would give
+        assert ctrl.live_roi_centroid == (2.0, 3.0)
 
 
 # ---------------------------------------------------------------------------

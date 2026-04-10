@@ -30,15 +30,8 @@
     }
   }
 
-  // -- Colormap: sync from server on load, then via WS messages -----------
-  fetch("../display/colormap")
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (data.current && COLORMAPS[data.current]) {
-        currentCmap = data.current;
-      }
-    })
-    .catch(function() {});
+  // -- Colormap: synced from WS payload (msg.colormap) on each frame ------
+  // Default to "hot" until the first frame arrives.
 
   // -- Theme ---------------------------------------------------------------
   ThemeManager.init();
@@ -61,8 +54,8 @@
 
   // -- Frame handler ------------------------------------------------------
   Connection.onFrame(function(msg) {
-    // Track colormap from WS readback
-    if (msg.colormap) {
+    // Track colormap from WS readback (validated against renderer LUTs)
+    if (msg.colormap && COLORMAPS[msg.colormap]) {
       currentCmap = msg.colormap;
     }
 

@@ -338,6 +338,17 @@ def get_centroid_reference(prefix: str) -> Optional[tuple]:
     return (float(entry["x"]), float(entry["y"]))
 
 
+def clear_centroid_reference(prefix: str) -> None:
+    """Remove the saved centroid reference for *prefix* from config.json."""
+    with _config_lock:
+        config_path = _get_config_path()
+        config = load_config()
+        refs: Dict[str, Any] = config.setdefault("centroid_references", {})
+        if prefix in refs:
+            del refs[prefix]
+            _atomic_write_config(config_path, config)
+
+
 def save_crosshair_enabled(enabled: bool) -> None:
     """Persist the crosshair visibility toggle in config.json."""
     with _config_lock:

@@ -261,6 +261,14 @@ class HeadlessBridge:
     def set_crosshair(self, enabled: bool) -> None:
         self._controller.set_crosshair_enabled(enabled)
 
+    def set_centroid_reference(self, x: float, y: float) -> None:
+        """Persist a new centroid reference (full-frame pixel coordinates)."""
+        self._controller.set_centroid_reference(float(x), float(y))
+
+    def clear_centroid_reference(self) -> None:
+        """Remove the centroid reference for the active camera."""
+        self._controller.clear_centroid_reference()
+
     # ------------------------------------------------------------------
     # Display
     # ------------------------------------------------------------------
@@ -306,10 +314,6 @@ class HeadlessBridge:
             "visible": True,  # Always "visible" in headless mode
             "depth": self._controller.trending_buffer._max_len,
         }
-
-    def set_trending_visible(self, visible: bool) -> None:
-        # No-op in headless mode — trending is always available
-        pass
 
     def set_trending_depth(self, depth: int) -> None:
         self._controller.set_trending_depth(depth)
@@ -508,6 +512,9 @@ class HeadlessBridge:
             },
             "roi": roi,
             "drift": drift,
+            "streaming": self._controller.streaming,
+            "background": self.get_background_status(),
+            "colormap": self._state.colormap_name,
         }
 
 
