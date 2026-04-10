@@ -622,6 +622,48 @@ class TestWSPayload:
         }
         assert payload["colormap"] == "hot"
 
+    def test_build_ws_frame_payload_includes_roi_projections_when_active(
+        self, bridge, mock_state, mock_controller
+    ):
+        """ROI overlay drawing on the main image needs ROI-local projections
+        in msg.roi.x_projection / msg.roi.y_projection."""
+        mock_controller.current_roi = (10, 20, 14, 24)  # 4x4 ROI
+        mock_fs = MagicMock()
+        # Build a 50x50 frame whose ROI region has known values
+        frame = np.zeros((50, 50), dtype=np.uint16)
+        frame[20:24, 10:14] = np.array([
+            [1, 2, 3, 4],
+            [5, 6, 7, 8],
+            [9, 10, 11, 12],
+            [13, 14, 15, 16],
+        ], dtype=np.uint16)
+        mock_fs.frame = frame
+        mock_fs.frame_number = 1
+        mock_fs.analysis = None
+        mock_state.frame_state = mock_fs
+
+        payload = bridge.build_ws_frame_payload()
+        assert payload["roi"]["active"] is True
+        # x_projection = mean along axis=0 (column means)
+        assert payload["roi"]["x_projection"] == [7.0, 8.0, 9.0, 10.0]
+        # y_projection = mean along axis=1 (row means)
+        assert payload["roi"]["y_projection"] == [2.5, 6.5, 10.5, 14.5]
+
+    def test_build_ws_frame_payload_omits_roi_projections_when_inactive(
+        self, bridge, mock_state, mock_controller
+    ):
+        mock_controller.current_roi = None
+        mock_fs = MagicMock()
+        mock_fs.frame = np.zeros((10, 10), dtype=np.uint16)
+        mock_fs.frame_number = 1
+        mock_fs.analysis = None
+        mock_state.frame_state = mock_fs
+
+        payload = bridge.build_ws_frame_payload()
+        assert payload["roi"]["active"] is False
+        assert "x_projection" not in payload["roi"]
+        assert "y_projection" not in payload["roi"]
+
     def test_build_ws_frame_payload_reflects_state_changes(
         self, bridge, mock_state, mock_controller
     ):

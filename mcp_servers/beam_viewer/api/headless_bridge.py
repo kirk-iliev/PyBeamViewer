@@ -495,6 +495,23 @@ class HeadlessBridge:
         roi = self.get_roi()
         drift = self.get_drift()
 
+        # Attach ROI-local projections so the "Show on: ROI" projection
+        # overlay in overlays.js has data to draw. Computed here rather
+        # than via a separate REST call so the overlay updates per WS
+        # frame instead of polling.
+        if roi.get("active"):
+            roi_bounds = self._controller.current_roi
+            if roi_bounds is not None:
+                rx0, ry0, rx1, ry1 = roi_bounds
+                rx0 = max(0, rx0)
+                ry0 = max(0, ry0)
+                rx1 = min(frame.shape[1], rx1)
+                ry1 = min(frame.shape[0], ry1)
+                if rx1 > rx0 and ry1 > ry0:
+                    roi_frame = frame[ry0:ry1, rx0:rx1]
+                    roi["x_projection"] = np.mean(roi_frame, axis=0).tolist()
+                    roi["y_projection"] = np.mean(roi_frame, axis=1).tolist()
+
         return {
             "type": "frame",
             "frame_number": metadata["frame_number"],
