@@ -371,6 +371,13 @@ class HeadlessBridge:
             return ""
         return _frame_to_png_b64(fs.frame)
 
+    def get_frame_png_bytes(self) -> bytes | None:
+        """Return the current frame as raw PNG bytes."""
+        fs = self._state.frame_state
+        if fs is None:
+            return None
+        return _frame_to_png_bytes(fs.frame)
+
     def get_frame_raw(self) -> Optional[bytes]:
         """Return the current frame as raw numpy bytes."""
         fs = self._state.frame_state
@@ -583,15 +590,12 @@ def _frame_to_jpeg_b64(frame: np.ndarray, quality: int = 80) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-def _frame_to_png_b64(frame: np.ndarray) -> str:
-    """Encode a 2D numpy frame as a base64 PNG string.
+def _frame_to_png_bytes(frame: np.ndarray) -> bytes:
+    """Encode a 2D numpy frame as raw PNG bytes.
 
     Normalizes to 8-bit grayscale for PNG encoding.
     """
-    try:
-        from PIL import Image
-    except ImportError:
-        return ""
+    from PIL import Image
 
     f = frame.astype(np.float64)
     fmin, fmax = f.min(), f.max()
@@ -603,4 +607,12 @@ def _frame_to_png_b64(frame: np.ndarray) -> str:
     img = Image.fromarray(normalized, mode="L")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode("ascii")
+    return buf.getvalue()
+
+
+def _frame_to_png_b64(frame: np.ndarray) -> str:
+    """Encode a 2D numpy frame as a base64 PNG string."""
+    try:
+        return base64.b64encode(_frame_to_png_bytes(frame)).decode("ascii")
+    except ImportError:
+        return ""

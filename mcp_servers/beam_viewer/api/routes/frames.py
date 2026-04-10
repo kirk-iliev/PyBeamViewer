@@ -6,6 +6,7 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 
 from ..headless_bridge import HeadlessBridge
 from ..dependencies import get_bridge
@@ -29,6 +30,15 @@ def get_current_frame(bridge: HeadlessBridge = Depends(get_bridge)):
     metadata = bridge.get_frame_metadata()
     image_b64 = bridge.get_frame_png_b64()
     return {"metadata": metadata, "image_b64_png": image_b64}
+
+
+@router.get("/current.png", response_class=Response)
+def get_current_frame_png(bridge: HeadlessBridge = Depends(get_bridge)):
+    """Get the current frame as a raw PNG image."""
+    png_bytes = bridge.get_frame_png_bytes()
+    if png_bytes is None:
+        return Response(status_code=503, content="No frame available")
+    return Response(content=png_bytes, media_type="image/png")
 
 
 @router.get("/projections", response_model=ProjectionData)
