@@ -133,6 +133,23 @@ var Projections = (function() {
     ctx.lineTo(pad.left + plotW, pad.top + plotH);
     ctx.stroke();
 
+    // X-axis ticks (pixel indices)
+    ctx.fillStyle = COLORS.axisText;
+    ctx.font = "10px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    var nXTicks = 5;
+    for (var t = 0; t <= nXTicks; t++) {
+      var tickIdx = Math.round((t / nXTicks) * (n - 1));
+      var tickX = xMap(tickIdx);
+      ctx.strokeStyle = COLORS.axis;
+      ctx.beginPath();
+      ctx.moveTo(tickX, pad.top + plotH);
+      ctx.lineTo(tickX, pad.top + plotH + 4);
+      ctx.stroke();
+      ctx.fillText(tickIdx.toString(), tickX, pad.top + plotH + 5);
+    }
+
     // Clip curves to the plot area so spikes are cut at axis limits
     ctx.save();
     ctx.beginPath();
@@ -171,6 +188,16 @@ var Projections = (function() {
     }
 
     ctx.restore();
+
+    // --- Centroid marker — small yellow dot on the x-axis ---
+    if (fitParams && fitParams.success && fitParams.centroid != null) {
+      var dotX = xMap(fitParams.centroid);
+      var dotY = pad.top + plotH;
+      ctx.fillStyle = "#FFD700";
+      ctx.beginPath();
+      ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     // --- Title label ---
     ctx.fillStyle = COLORS.text;
@@ -248,12 +275,12 @@ var Projections = (function() {
     _lastVFit  = analysis.y_fit    || null;
 
     var C = getColors();
-    drawPlot(hCanvas, _lastHProj, null, {
+    drawPlot(hCanvas, _lastHProj, _lastHFit, {
       title: "Horizontal Projection  (Full Image)",
       curveColor: C.hCurve,
     });
 
-    drawPlot(vCanvas, _lastVProj, null, {
+    drawPlot(vCanvas, _lastVProj, _lastVFit, {
       title: "Vertical Projection  (Full Image)",
       curveColor: C.vCurve,
     });
@@ -293,13 +320,13 @@ var Projections = (function() {
   function redrawAll() {
     var C = getColors();
     if (hCanvas && _lastHProj) {
-      drawPlot(hCanvas, _lastHProj, null, {
+      drawPlot(hCanvas, _lastHProj, _lastHFit, {
         title: "Horizontal Projection  (Full Image)",
         curveColor: C.hCurve,
       });
     }
     if (vCanvas && _lastVProj) {
-      drawPlot(vCanvas, _lastVProj, null, {
+      drawPlot(vCanvas, _lastVProj, _lastVFit, {
         title: "Vertical Projection  (Full Image)",
         curveColor: C.vCurve,
       });
