@@ -1,18 +1,27 @@
 # Beam Viewer Deploy & Test
 
-Deploy the beam viewer headless container to appsdev2, validate it against live EPICS cameras, debug failures, and iterate until everything works.
+Deploy the beam viewer headless container to appsdev2 via GitLab CI/CD, validate it against live EPICS cameras, debug failures, and iterate until everything works.
 
 **Source of truth:** ALS GitLab — `https://git.als.lbl.gov/physics/production/beam-viewer`
 **GitHub (`origin`) is no longer used for deployment. Ignore it.**
 
-All code changes must be pushed to the `gitlab` remote before deploying:
-```bash
-git push gitlab <branch>
-```
+## CI/CD Pipeline
+
+Beam-viewer has its own 3-stage GitLab CI pipeline (`.gitlab-ci.yml`):
+
+| Stage | Jobs | Purpose |
+|-------|------|---------|
+| checks | lint, test | Ruff linting + pytest unit tests (advisory, `allow_failure: true`) |
+| docker-build | build-beam-viewer | Builds container image, tags with `$CI_COMMIT_SHORT_SHA` |
+| release | release | Re-tags as `:latest` (main branch only, manual trigger) |
+
+The image is pushed to the GitLab Container Registry at `git.als.lbl.gov:5050/physics/production/beam-viewer/beam-viewer:latest`.
+
+On appsdev2, als-profiles' `docker-compose.yml` references this image via `${BEAM_VIEWER_REGISTRY}/beam-viewer:latest`. The `deploy.sh` script pulls it alongside all other MCP server images.
 
 ## Why Host Networking Matters
 
-The beam viewer uses caproto in "native mode" (empty `host` field in config.json) which relies on UDP broadcast for Channel Access PV discovery. Standard container networking (bridge/NAT) isolates UDP broadcasts — the container would never find the IOCs. `network_mode: host` puts the container directly on appsdev2's network where CA discovery works natively.
+The beam viewer uses caproto in "native mode" (empty `host` field in config.json) which relies on UDP broadcast for Channel Access PV discovery. Standard container networking (bridge/NAT) isolates UDP broadcasts — the container would never find the IOCs. `docker-compose.host.yml` adds `network_mode: host` so CA discovery works natively.
 
 ## Action Routing
 
@@ -20,12 +29,11 @@ Match the user's intent to one of these actions:
 
 | Intent | Action |
 |--------|--------|
-| First-time deploy or full redeploy | **Deploy** (push → pull → build → run → validate) |
-| Code changed, need to test again | **Rebuild** (push → pull → rebuild image → run → validate) |
+| First-time deploy or full redeploy | **Deploy** (push → CI → release → deploy.sh → validate) |
+| Code changed, need to test again | **Rebuild** (push → CI → release → deploy.sh → validate) |
 | Container is running, check if it works | **Validate** (run checks against running container) |
 | Something isn't working | **Debug** (inspect logs, check EPICS, targeted fixes) |
 | Check web panel matches PyQt layout | **Layout Parity** → read `references/layout-parity.md` |
-| Done testing | **Cleanup** (stop container, optionally remove image) |
 
 ---
 
@@ -34,82 +42,64 @@ Match the user's intent to one of these actions:
 ### Prerequisites
 
 - SSH access to appsdev2 (`ssh appsdev2` works)
-- podman available on appsdev2
-- Changes pushed to GitLab (`git push gitlab <branch>`)
+- als-profiles cloned on appsdev2 at `~/projects/als-profiles`
+- `.env.production` on appsdev2 includes `BEAM_VIEWER_REGISTRY=git.als.lbl.gov:5050/physics/production/beam-viewer`
 - No other process using port 8007 on appsdev2
 
-### Step 1: Push local changes to GitLab
-
-Always push first — appsdev2 pulls from GitLab, so unpushed commits won't be there.
+### Step 1: Push to GitLab (triggers CI)
 
 ```bash
-git push gitlab web-panel
+NO_PROXY=git.als.lbl.gov git push gitlab main
 ```
 
-### Step 2: Pull on appsdev2
-
-First time (fresh clone):
-```bash
-ssh appsdev2 "git clone https://oauth2:${ALS_GITLAB_TOKEN}@git.als.lbl.gov/physics/production/beam-viewer.git ~/projects/beam-viewer"
-```
-
-Subsequent pulls (repo already exists):
-```bash
-ssh appsdev2 "cd ~/projects/beam-viewer && git fetch origin && git checkout web-panel && git pull"
-```
-
-Note: Inside the cloned repo on appsdev2, the GitLab remote is called `origin` (it's a plain clone).
-
-### Step 3: Build the container image
+### Step 2: Monitor CI pipeline
 
 ```bash
-ssh appsdev2 "cd ~/projects/beam-viewer && podman build -f docker/Dockerfile.beam-viewer -t beam-viewer-test ."
+curl -s --header "PRIVATE-TOKEN: $ALS_GITLAB_TOKEN" \
+  "https://git.als.lbl.gov/api/v4/projects/physics%2Fproduction%2Fbeam-viewer/pipelines?per_page=1" \
+  | python3 -m json.tool
 ```
 
-Watch for: pip install failures (network/proxy issues), missing source files, or Python version mismatches.
+Wait until status shows `manual` (checks and docker-build stages passed, release job waiting).
 
-### Step 4: Run the container
+### Step 3: Trigger manual release
+
+Via GitLab web UI or API. This re-tags the image as `:latest`.
+
+### Step 4: Deploy on appsdev2
 
 ```bash
-ssh appsdev2 "podman run -d --name beam-viewer-test \
-  --network host \
-  beam-viewer-test \
-  --host 0.0.0.0 --port 8007"
+ssh appsdev2 "cd ~/projects/als-profiles && ./scripts/deploy.sh"
 ```
 
-The Dockerfile bakes in the ALS EPICS CA environment (`EPICS_CA_ADDR_LIST` with all ALS broadcast subnets, `EPICS_CA_AUTO_ADDR_LIST=NO`, `EPICS_CA_SERVER_PORT=5064`). Combined with `--network host` and `"host": ""` in config.json, caproto can discover IOCs across all ALS subnets via UDP broadcast. No manual `-e` flags needed.
+This single command pulls all images (including beam-viewer) and starts everything.
 
 ### Step 5: Validate
 
-Run the validation script (see **Validate** below) or step through checks manually.
+Run the validation checks below or step through manually.
 
 ---
 
 ## Rebuild (After Code Changes)
 
-When you've fixed something locally and want to test again:
+Same flow as Deploy — push, CI, release, deploy.sh:
 
 ```bash
 # 1. Push changes to GitLab
-git push gitlab web-panel
+NO_PROXY=git.als.lbl.gov git push gitlab main
 
-# 2. Stop and remove the old container on appsdev2
-ssh appsdev2 "podman stop beam-viewer-test 2>/dev/null; podman rm beam-viewer-test 2>/dev/null"
+# 2. Wait for CI pipeline to reach "manual" status (checks + build pass)
 
-# 3. Pull latest from GitLab on appsdev2
-ssh appsdev2 "cd ~/projects/beam-viewer && git pull"
+# 3. Trigger manual release job (GitLab UI or API)
 
-# 4. Rebuild (podman caches layers, so unchanged deps are fast)
-ssh appsdev2 "cd ~/projects/beam-viewer && podman build -f docker/Dockerfile.beam-viewer -t beam-viewer-test ."
-
-# 5. Run again
-ssh appsdev2 "podman run -d --name beam-viewer-test \
-  --network host \
-  beam-viewer-test \
-  --host 0.0.0.0 --port 8007"
+# 4. Pull and restart on appsdev2
+ssh appsdev2 "cd ~/projects/als-profiles && ./scripts/deploy.sh"
 ```
 
-EPICS CA env vars are baked into the image — no manual `-e` flags needed.
+For a clean restart (stops all containers first):
+```bash
+ssh appsdev2 "cd ~/projects/als-profiles && ./scripts/deploy.sh --clean"
+```
 
 ---
 
@@ -120,9 +110,9 @@ Validation has four tiers. Each tier assumes the previous one passed.
 ### Tier 1: Container alive
 
 ```bash
-ssh appsdev2 "podman ps --filter name=beam-viewer-test --format '{{.Status}}'"
+ssh appsdev2 "podman ps --filter name=als-beam-viewer --format '{{.Status}}'"
 ```
-Expected: `Up X seconds` or similar. If not running, check `podman logs beam-viewer-test`.
+Expected: `Up X seconds` or similar. If not running, check `podman logs als-beam-viewer`.
 
 ### Tier 2: API responding
 
@@ -187,20 +177,13 @@ ssh -L 8007:localhost:8007 -N -f appsdev2
 Compare what you see in the screenshot against what the PyQt source says. Identify ONE specific mismatch.
 
 **Step 3: FIX the mismatch.**
-Make the minimal local change (HTML, CSS, or JS) to close that one gap. Then push and redeploy:
+Make the minimal local change (HTML, CSS, or JS). Then push and redeploy:
 ```bash
 # Push changes to GitLab
-git push gitlab web-panel
+NO_PROXY=git.als.lbl.gov git push gitlab main
 
-# Stop old container
-ssh appsdev2 "podman stop beam-viewer-test 2>/dev/null; podman rm beam-viewer-test 2>/dev/null"
-
-# Pull latest on appsdev2
-ssh appsdev2 "cd ~/projects/beam-viewer && git pull"
-
-# Rebuild and run
-ssh appsdev2 "cd ~/projects/beam-viewer && podman build -f docker/Dockerfile.beam-viewer -t beam-viewer-test . 2>&1 | tail -3"
-ssh appsdev2 "podman run -d --name beam-viewer-test --network host beam-viewer-test --host 0.0.0.0 --port 8007"
+# Wait for CI → trigger release → deploy
+ssh appsdev2 "cd ~/projects/als-profiles && ./scripts/deploy.sh"
 ```
 IMPORTANT: Bump the `?v=N` cache-bust version on changed static files in `index.html` so browsers don't serve stale assets.
 
@@ -243,7 +226,7 @@ When something fails, work through this decision tree:
 
 ```
 Container not running?
-  → podman logs beam-viewer-test
+  → podman logs als-beam-viewer
   → Usually: import error, missing dep, config parse failure
 
 Health returns "degraded" / EPICS disconnected?
@@ -251,12 +234,12 @@ Health returns "degraded" / EPICS disconnected?
     ssh appsdev2 "caget BL72:image1:ArraySize0_RBV"
   → If caget fails: camera IOC is down, or wrong PV prefix. Try BL31.
   → If caget works but container can't connect:
-    - Verify host networking: podman inspect beam-viewer-test | grep NetworkMode
+    - Verify host networking: podman inspect als-beam-viewer | grep NetworkMode
     - Check container logs for caproto errors
 
 Frames endpoint returns error?
   → Health says connected but frames fail: check analysis pipeline
-    ssh appsdev2 "podman logs beam-viewer-test 2>&1 | tail -30"
+    ssh appsdev2 "podman logs als-beam-viewer 2>&1 | tail -30"
   → Look for reshape errors (wrong width/height), numpy issues
 
 WebSocket not streaming?
@@ -269,19 +252,19 @@ Read `references/troubleshooting.md` for the full symptom → cause → fix tabl
 
 ```bash
 # Container logs (last 50 lines)
-ssh appsdev2 "podman logs --tail 50 beam-viewer-test"
+ssh appsdev2 "podman logs --tail 50 als-beam-viewer"
 
 # Follow logs in real-time
-ssh appsdev2 "podman logs -f beam-viewer-test"
+ssh appsdev2 "podman logs -f als-beam-viewer"
 
 # Shell into the container
-ssh appsdev2 "podman exec -it beam-viewer-test /bin/bash"
+ssh appsdev2 "podman exec -it als-beam-viewer /bin/bash"
 
 # Check what config.json the container is using
-ssh appsdev2 "podman exec beam-viewer-test cat /app/config/config.json | python3 -m json.tool"
+ssh appsdev2 "podman exec als-beam-viewer cat /app/config/config.json | python3 -m json.tool"
 
 # Test EPICS from inside the container
-ssh appsdev2 "podman exec beam-viewer-test python3 -c \"
+ssh appsdev2 "podman exec als-beam-viewer python3 -c \"
 from caproto.threading.client import Context
 ctx = Context()
 pv, = ctx.get_pvs('BL72:image1:ArraySize0_RBV')
@@ -292,22 +275,8 @@ print('Connected:', pv.read().data)
 # Check if port 8007 is in use by something else
 ssh appsdev2 "ss -tlnp | grep 8007"
 
-# Verify repo state on appsdev2
-ssh appsdev2 "cd ~/projects/beam-viewer && git log --oneline -5 && git status"
-```
-
----
-
-## Cleanup
-
-```bash
-ssh appsdev2 "podman stop beam-viewer-test && podman rm beam-viewer-test"
-
-# Optionally remove the image too
-ssh appsdev2 "podman rmi beam-viewer-test"
-
-# Remove cloned source (if you don't need it anymore)
-ssh appsdev2 "rm -rf ~/projects/beam-viewer"
+# Check all als-profiles containers
+ssh appsdev2 "cd ~/projects/als-profiles && podman-compose ps"
 ```
 
 ---
@@ -335,20 +304,15 @@ Then open `http://localhost:8007/panel` in your browser.
 
 ## Config Customization
 
-The default config.json is baked into the image. To override it at runtime (e.g., to test a different camera or change EPICS settings):
+The default config.json is baked into the image. To override at runtime, add a volume mount in als-profiles' `docker-compose.yml`:
 
-```bash
-# Create a local config on appsdev2
-ssh appsdev2 "mkdir -p ~/projects/beam-viewer-data"
-# Edit the config as needed, then mount it:
-ssh appsdev2 "podman run -d --name beam-viewer-test \
-  --network host \
-  -v ~/projects/beam-viewer-data:/app/config \
-  beam-viewer-test \
-  --host 0.0.0.0 --port 8007"
+```yaml
+beam-viewer:
+  volumes:
+    - /path/to/custom/config.json:/app/config/config.json:ro
 ```
 
-The entrypoint.sh will copy the default config into the mounted volume if config.json doesn't exist yet, then you can edit it in place and restart.
+Then redeploy: `ssh appsdev2 "cd ~/projects/als-profiles && ./scripts/deploy.sh --clean"`
 
 ### Available camera prefixes
 

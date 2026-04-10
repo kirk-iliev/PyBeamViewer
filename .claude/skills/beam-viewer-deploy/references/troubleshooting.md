@@ -11,14 +11,14 @@ Symptom → likely cause → fix for common beam viewer deployment failures.
 | `FileNotFoundError: config.json` | entrypoint.sh didn't copy default config | Check `COPY mcp_servers/beam_viewer/config/config.json /app/config.default/config.json` |
 | `JSONDecodeError` in config | Malformed config.json (maybe from a bad edit) | Rebuild image to reset to default, or mount a corrected config |
 | `Address already in use: 8007` | Another process on port 8007 | `ssh appsdev2 "ss -tlnp \| grep 8007"` — kill the conflicting process or use a different port |
-| Container exits immediately (exit code 1) | Python crash on startup | `podman logs beam-viewer-test` for the traceback |
+| Container exits immediately (exit code 1) | Python crash on startup | `podman logs als-beam-viewer` for the traceback |
 
 ## EPICS Not Connecting
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | Health: `"degraded"`, `"reason": "EPICS disconnected"` | PVs not reachable | Verify with `caget BL72:image1:ArraySize0_RBV` on appsdev2 |
-| `caget` works on host but not in container | Container not using host networking | Check `--network host` flag. Verify: `podman inspect beam-viewer-test \| grep NetworkMode` should show `host` |
+| `caget` works on host but not in container | Container not using host networking | Check `--network host` flag. Verify: `podman inspect als-beam-viewer \| grep NetworkMode` should show `host` |
 | `caget` times out on host too | Camera IOC is down, or wrong PV name | Try a different prefix (BL31 vs BL72). Check with accelerator operations if IOCs are running. |
 | caproto `SearchRequest timed out` in logs | CA search can't find the IOC via UDP broadcast | `EPICS_CA_ADDR_LIST` is baked into the Dockerfile with ALS subnets. If overridden at runtime, verify the addr list covers the IOC's subnet. |
 | Connected briefly then disconnected | IOC restarted or network blip | Check logs for reconnection attempts. The worker has automatic retry with backoff. |
@@ -41,7 +41,7 @@ ctx.disconnect()
 \""
 
 # 3. Can the container reach it?
-ssh appsdev2 "podman exec beam-viewer-test python3 -c \"
+ssh appsdev2 "podman exec als-beam-viewer python3 -c \"
 from caproto.threading.client import Context
 ctx = Context()
 pv, = ctx.get_pvs('BL72:image1:ArraySize0_RBV')
@@ -86,7 +86,7 @@ If step 2 works but step 3 fails, the container networking is the issue.
 |---------|-------|-----|
 | `podman build` fails downloading pip packages | Proxy required on ALS network | May need `--build-arg HTTP_PROXY=http://squid-ctrl.als.lbl.gov:3128` |
 | `podman: command not found` | podman not installed or not in PATH | On appsdev2, podman should be available. Check with `which podman`. |
-| `Error: container name beam-viewer-test already in use` | Forgot to remove old container | `podman rm -f beam-viewer-test` |
+| `Error: container name als-beam-viewer already in use` | Forgot to remove old container | `podman rm -f als-beam-viewer` |
 | Image builds but is very large | Docker cache not being used | Normal for first build (~500MB). Subsequent builds use layer cache. |
 
 ## Performance

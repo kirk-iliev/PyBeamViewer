@@ -1,0 +1,59 @@
+stages:
+  - checks
+  - docker-build
+  - release
+
+variables:
+  REGISTRY: $CI_REGISTRY_IMAGE
+
+# ── Stage 1: Lint + test (parallel, advisory) ──────────────────────────
+
+lint:
+  stage: checks
+  image: python:3.12-slim
+  script:
+    - pip install --no-cache-dir ruff
+    - ruff check analysis/ config/ core/ mcp_servers/beam_viewer/
+  allow_failure: true
+
+test:
+  stage: checks
+  image: python:3.12-slim
+  script:
+    - pip install --no-cache-dir pytest numpy scipy caproto fastapi uvicorn Pillow websockets pydantic
+    - export PYTHONPATH=$PWD:$PWD/mcp_servers
+    - pytest mcp_servers/beam_viewer/tests/ -v --tb=short
+        --override-ini="addopts=" --override-ini="testpaths=mcp_servers"
+  allow_failure: true
+
+# ── Stage 2: Build container image ─────────────────────────────────────
+
+build-beam-viewer:
+  stage: docker-build
+  image: docker:24
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -f docker/Dockerfile.beam-viewer
+        -t $REGISTRY/beam-viewer:$CI_COMMIT_SHORT_SHA .
+    - docker push $REGISTRY/beam-viewer:$CI_COMMIT_SHORT_SHA
+
+# ── Stage 3: Release — re-tag as :latest (main only, manual) ──────────
+
+release:
+  stage: release
+  image: docker:24
+  services:
+    - docker:24-dind
+  needs: [build-beam-viewer]
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker pull $REGISTRY/beam-viewer:$CI_COMMIT_SHORT_SHA
+    - docker tag  $REGISTRY/beam-viewer:$CI_COMMIT_SHORT_SHA $REGISTRY/beam-viewer:latest
+    - docker push $REGISTRY/beam-viewer:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual

@@ -34,7 +34,6 @@ npx playwright test tests/e2e/beam-viewer.spec.js --reporter=list
   - `core/` — headless_controller, headless_epics, headless_analysis, dispatcher
   - `api/` — headless_bridge, server (FastAPI app factory), routes, schemas
   - `static/` — Web panel (index.html, JS modules, CSS)
-  - `tools.py` — 15 fastmcp MCP tool definitions
 - `docker/Dockerfile.beam-viewer` — Container image (port 8007)
 - `tests/e2e/` — Playwright E2E tests
 - `tests/integration/` — MCP integration tests

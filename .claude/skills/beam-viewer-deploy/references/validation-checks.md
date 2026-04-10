@@ -7,16 +7,16 @@ Complete validation commands with expected outputs. These are the checks that `s
 ### 1.1 Container Running
 
 ```bash
-ssh appsdev2 "podman ps --filter name=beam-viewer-test --format '{{.Names}} {{.Status}}'"
+ssh appsdev2 "podman ps --filter name=als-beam-viewer --format '{{.Names}} {{.Status}}'"
 ```
 
-**Pass**: Output contains `beam-viewer-test Up`
-**Fail**: Empty output or `Exited`. Check: `podman logs beam-viewer-test`
+**Pass**: Output contains `als-beam-viewer Up`
+**Fail**: Empty output or `Exited`. Check: `podman logs als-beam-viewer`
 
 ### 1.2 Process Healthy
 
 ```bash
-ssh appsdev2 "podman inspect beam-viewer-test --format '{{.State.Status}}'"
+ssh appsdev2 "podman inspect als-beam-viewer --format '{{.State.Status}}'"
 ```
 
 **Pass**: `running`
@@ -187,7 +187,7 @@ ssh appsdev2 "curl -sf -o /dev/null -w '%{http_code}' http://localhost:8007/pane
 **Pass**: HTTP 200
 **Fail**: HTTP 404 — static files not mounted. Check that `/app/mcp_servers/beam_viewer/static/` exists in the container:
 ```bash
-ssh appsdev2 "podman exec beam-viewer-test ls /app/mcp_servers/beam_viewer/static/"
+ssh appsdev2 "podman exec als-beam-viewer ls /app/mcp_servers/beam_viewer/static/"
 ```
 
 ### 4.3 Web Panel Visual (Manual)
@@ -203,15 +203,3 @@ Checklist:
 - [ ] Camera dropdown lists all prefixes
 - [ ] Colormap selector changes the display
 
----
-
-## Tier 5: MCP Tools (Optional)
-
-If testing MCP integration:
-
-```bash
-# List available tools
-ssh appsdev2 "curl -sf http://localhost:8007/mcp/tools | python3 -m json.tool"
-```
-
-This tier is only relevant when integrating with the als-profiles MCP pipeline.
