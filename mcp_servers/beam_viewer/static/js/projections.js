@@ -240,12 +240,12 @@ var Projections = (function() {
     _lastVFit  = analysis.y_fit    || null;
 
     var C = getColors();
-    drawPlot(hCanvas, _lastHProj, _lastHFit, {
+    drawPlot(hCanvas, _lastHProj, null, {
       title: "Horizontal Projection  (Full Image)",
       curveColor: C.hCurve,
     });
 
-    drawPlot(vCanvas, _lastVProj, _lastVFit, {
+    drawPlot(vCanvas, _lastVProj, null, {
       title: "Vertical Projection  (Full Image)",
       curveColor: C.vCurve,
     });
@@ -285,13 +285,13 @@ var Projections = (function() {
   function redrawAll() {
     var C = getColors();
     if (hCanvas && _lastHProj) {
-      drawPlot(hCanvas, _lastHProj, _lastHFit, {
+      drawPlot(hCanvas, _lastHProj, null, {
         title: "Horizontal Projection  (Full Image)",
         curveColor: C.hCurve,
       });
     }
     if (vCanvas && _lastVProj) {
-      drawPlot(vCanvas, _lastVProj, _lastVFit, {
+      drawPlot(vCanvas, _lastVProj, null, {
         title: "Vertical Projection  (Full Image)",
         curveColor: C.vCurve,
       });
