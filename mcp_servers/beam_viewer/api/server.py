@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .dependencies import get_bridge, init_bridge
@@ -118,6 +119,11 @@ def create_app(bridge: Any, *, dispatcher: Optional[Any] = None) -> FastAPI:
         if reason is not None:
             result["reason"] = reason
         return result
+
+    # Redirect root to the web panel UI
+    @app.get("/")
+    async def root_redirect():
+        return RedirectResponse(url="/panel/")
 
     # Mount static files for the web frontend panel
     if _STATIC_DIR.is_dir():
