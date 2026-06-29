@@ -2,12 +2,14 @@
 main.py — Application entry point.
 
 Creates the MVC components, wires them via the controller, starts the
-API server, and runs the Qt event loop.
+localhost API server (unless --no-api / BEAMVIEWER_NO_API), and runs the
+Qt event loop.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import traceback
 
@@ -27,7 +29,14 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
-    app = QApplication(sys.argv)
+    # Run GUI-only (skip the localhost API server) via --no-api or
+    # BEAMVIEWER_NO_API=1. Strip the flag from argv before Qt parses it.
+    api_disabled = "--no-api" in sys.argv or os.environ.get(
+        "BEAMVIEWER_NO_API", ""
+    ).lower() in ("1", "true", "yes")
+    argv = [a for a in sys.argv if a != "--no-api"]
+
+    app = QApplication(argv)
     app.setStyle("Fusion")
 
     # pyqtgraph global config (must be set before any widget creation)
@@ -49,17 +58,22 @@ def main() -> None:
         sys.exit(1)
 
     # --- API server ---
-    try:
-        from api.bridge import ApiBridge
-        from api.server import start_api_thread
-
-        bridge = ApiBridge(state, controller, window)
-        controller.set_api_bridge(bridge)
-        start_api_thread(bridge, host="127.0.0.1", port=8765)
-    except Exception:
-        logging.getLogger(__name__).warning(
-            "Failed to start API server:\n%s", traceback.format_exc(),
+    if api_disabled:
+        logging.getLogger(__name__).info(
+            "API server disabled (--no-api / BEAMVIEWER_NO_API); running GUI only.",
         )
+    else:
+        try:
+            from api.bridge import ApiBridge
+            from api.server import start_api_thread
+
+            bridge = ApiBridge(state, controller, window)
+            controller.set_api_bridge(bridge)
+            start_api_thread(bridge, host="127.0.0.1", port=8765)
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "Failed to start API server:\n%s", traceback.format_exc(),
+            )
 
     window.show()
     controller.start()
