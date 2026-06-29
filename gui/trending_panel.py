@@ -12,7 +12,13 @@ from typing import Dict, Optional
 import numpy as np
 import pyqtgraph as pg
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .theme import Theme, _MONO
 
@@ -39,9 +45,29 @@ class _TrendSubPlot(QWidget):
         lay.setContentsMargins(2, 2, 2, 0)
         lay.setSpacing(1)
 
-        # --- title ---
+        # --- title row: label + auto-scale toggle ---
+        # When auto is on, the x-axis auto-scrolls with incoming data. As soon
+        # as the user pans/zooms or edits the axis range, auto turns off so the
+        # manual range sticks during streaming (no need to pause). Clicking the
+        # button re-enables auto.
+        self._auto = True
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(4)
         self.title_label = QLabel(title)
-        lay.addWidget(self.title_label)
+        title_row.addWidget(self.title_label)
+        title_row.addStretch(1)
+        self.auto_btn = QPushButton("⟲ Auto")
+        self.auto_btn.setCheckable(True)
+        self.auto_btn.setChecked(True)
+        self.auto_btn.setMaximumHeight(20)
+        self.auto_btn.setToolTip(
+            "Auto-scale axes with incoming data. Turns off automatically when "
+            "you pan, zoom, or set a range manually; click to re-enable."
+        )
+        self.auto_btn.toggled.connect(self._on_auto_toggled)
+        title_row.addWidget(self.auto_btn)
+        lay.addLayout(title_row)
 
         # --- legend-style stats bar ---
         self.stats_label = QLabel(f"  {trace_a_label}: ——    {trace_b_label}: ——")
@@ -55,6 +81,11 @@ class _TrendSubPlot(QWidget):
         self.pw.setMinimumHeight(70)
         self.pw.setLabel("bottom", "Frame #")
         lay.addWidget(self.pw, stretch=1)
+
+        # Detect manual pan/zoom/range edits so auto-scroll yields to the user.
+        self.pw.getPlotItem().getViewBox().sigRangeChangedManually.connect(
+            self._on_manual_range
+        )
 
         self.curve_a = self.pw.plot(
             pen=pg.mkPen(color_a, width=1.3), name=trace_a_label,
@@ -88,6 +119,19 @@ class _TrendSubPlot(QWidget):
         self.curve_a.setPen(pg.mkPen(self._color_a, width=1.3))
         self.curve_b.setPen(pg.mkPen(self._color_b, width=1.3))
 
+    def _on_manual_range(self) -> None:
+        """User panned/zoomed/edited the range — stop auto-scrolling."""
+        if self._auto:
+            # setChecked(False) -> _on_auto_toggled keeps state consistent.
+            self.auto_btn.setChecked(False)
+
+    def _on_auto_toggled(self, checked: bool) -> None:
+        self._auto = checked
+        if checked:
+            # Resume: let pyqtgraph rescale the y-axis; the next update_data
+            # re-applies the x auto-scroll.
+            self.pw.enableAutoRange(axis="y")
+
     def update_data(
         self,
         x: np.ndarray,
@@ -118,8 +162,9 @@ class _TrendSubPlot(QWidget):
             f"{self._trace_b_label}: {latest_b}"
         )
 
-        # Auto-scroll x-axis to show all available data
-        if len(x) > 0:
+        # Auto-scroll x-axis to show all available data (unless the user has
+        # taken manual control of the range during streaming).
+        if self._auto and len(x) > 0:
             x_min = float(x[0])
             x_max = float(x[-1])
             pad = max((x_max - x_min) * 0.02, 1)

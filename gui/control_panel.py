@@ -174,6 +174,20 @@ class ControlPanel(QWidget):
         self.center_roi_btn.setEnabled(False)
         analysis_lay.addWidget(self.center_roi_btn)
 
+        roi_size_row = QHBoxLayout()
+        roi_size_row.setSpacing(6)
+        roi_size_row.addWidget(QLabel("ROI size:"))
+        self.roi_size_input = QSpinBox()
+        self.roi_size_input.setRange(4, 4096)
+        self.roi_size_input.setSingleStep(2)
+        self.roi_size_input.setValue(40)
+        self.roi_size_input.setSuffix(" px")
+        self.roi_size_input.setToolTip(
+            "Side length of the square ROI applied by Center ROI"
+        )
+        roi_size_row.addWidget(self.roi_size_input, stretch=1)
+        analysis_lay.addLayout(roi_size_row)
+
         self.show_crosshair_btn = QPushButton("Show Centroid Ref")
         self.show_crosshair_btn.setCheckable(True)
         self.show_crosshair_btn.setChecked(False)

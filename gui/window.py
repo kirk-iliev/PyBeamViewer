@@ -494,8 +494,8 @@ class BeamViewerWindow(QMainWindow):
         cx = int(round(np.dot(patch.sum(axis=0), col_idx) / total))
         cy = int(round(np.dot(patch.sum(axis=1), row_idx) / total))
 
-        # Square half-side = larger of the two current half-dimensions
-        half = max(x1c - x0c, y1c - y0c) // 2
+        # Square half-side from the user-set ROI size (full side length)
+        half = self.control_panel.roi_size_input.value() // 2
 
         # New ROI clamped to image bounds
         nx0 = max(0,  cx - half)

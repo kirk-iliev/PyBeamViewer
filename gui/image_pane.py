@@ -437,6 +437,13 @@ class ImagePane(QWidget):
             Vertical pixel range (top edge, bottom edge)
         """
         self.plot.setRange(xRange=(x_min, x_max), yRange=(y_min, y_max), padding=0)
+        # Clamp the view to the sensor extent so aspect-lock expansion cannot
+        # overscan the axes beyond the actual frame (e.g. V-axis -200..+1200
+        # on a ~1024 px sensor). Pixels stay square; perpendicular axis
+        # letterboxes with background margin instead.
+        self.plot.setLimits(
+            xMin=x_min, xMax=x_max, yMin=y_min, yMax=y_max
+        )
 
     def set_image(self, frame: np.ndarray, frame_number: int) -> None:
         self.image_item.setImage(frame, autoLevels=False)
