@@ -4,6 +4,7 @@ pyqtgraph>=0.13
 numpy>=1.24
 scipy>=1.11
 caproto>=1.1
+matplotlib>=3.7   # pyqtgraph colormaps with source="matplotlib"
 
 # Development / testing (also declared in pyproject.toml [dev] extras)
 pytest>=8
